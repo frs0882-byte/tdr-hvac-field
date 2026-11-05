@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a202c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json?v=2">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=2">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
+  <title>TDR空調設備 現場リスト管理</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="header-title-row">
+          <span class="resort-badge">🏰 TDR</span>
+          <h1>空調設備 現場リスト管理</h1>
+        </div>
+        <div class="header-status-row">
+          <span id="data-count-badge" class="badge">登録: 0件</span>
+          <span class="badge badge-success">● オフライン保存対応</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ナビゲーションバー (タブ) -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="tab-input">
+        <span class="tab-icon">📝</span>
+        <span class="tab-label">現場入力</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-list">
+        <span class="tab-icon">📋</span>
+        <span class="tab-label">階層リスト</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-export">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">シート出力</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-report">
+        <span class="tab-icon">🖨️</span>
+        <span class="tab-label">写真カルテ</span>
+      </button>
+    </nav>
+
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+
+      <!-- ================= タブ1: 現場入力 ================= -->
+      <section id="tab-input" class="tab-pane active">
+        <form id="record-form">
+          <input type="hidden" id="edit-id" value="">
+
+          <!-- 編集モード告知バー -->
+          <div id="edit-indicator" class="edit-indicator hidden">
+            <span>✏️ 登録データを編集中です</span>
+            <button type="button" id="cancel-edit-btn" class="btn-sm btn-sub">キャンセル</button>
+          </div>
+
+          <!-- 1. 階層構造グループ -->
+          <div class="card form-section">
+            <div class="section-title">
+              <span class="num-badge">1</span>
+              <h2>階層・場所の指定</h2>
+            </div>
+            <p class="section-desc">TDRの施設マスターからタップで素早く選択できます。</p>
+
+            <!-- パーク選択ボタングループ -->
+            <div class="form-group">
+              <label class="form-label">パーク / エリア区分 <span class="req">*</span></label>
+              <div class="park-selector" id="park-selector">
+                <button type="button" class="park-btn active" data-park="TDS">TDS (シー)</button>
+                <button type="button" class="park-btn" data-park="TDL">TDL (ランド)</button>
+                <button type="button" class="park-btn" data-park="HOTEL">ホテル</button>
+                <button type="button" class="park-btn" data-park="OTHER">その他</button>
+              </div>
+            </div>
+
+            <!-- エリア選択 -->
+            <div class="form-group">
+              <div class="label-row">
+                <label for="area-select" class="form-label">エリア / テーマポート <span class="req">*</span></label>
+                <button type="button" id="toggle-manual-area" class="btn-link">✏️ 自由入力に切替</button>
+              </div>
+              <select id="area-select" class="form-select">
+                <!-- 動的生成 -->
+              </select>
+              <input type="text" id="area-manual" class="form-input hidden mt-1" placeholder="エリア名を手入力 (例: その他、仮設工区)">
+            </div>
+
+            <!-- 施設 / アトラクション名 -->
+            <div class="form-group">
+              <div class="label-row">
+                <label for="facility-select" class="form-label">施設 / アトラクション <span class="req">*</span></label>
+                <button type="button" id="toggle-manual-facility" class="btn-link">✏️ 自由入力に切替</button>
+              </div>
+              <div id="facility-select-container">
+                <input type="text" id="facility-filter" class="form-input" placeholder="🔍 施設名で絞り込み (例: センター)" autocomplete="off">
+                <select id="facility-select" class="form-select mt-1">
+                  <!-- 動的生成 -->
+                </select>
+              </div>
+              <input type="text" id="facility-manual" class="form-input hidden" placeholder="施設・建物名を手入力">
+            </div>
+
+            <!-- 部屋・場所 (機械室No) -->
+            <div class="form-group">
+              <label for="room-input" class="form-label">部屋名 / 機械室No <span class="req">*</span></label>
+              <input type="text" id="room-input" class="form-input text-lg" placeholder="例: 1階機械室No.2, 屋上PACスペース" required>
+              
+              <!-- 部屋名のクイック候補チップ -->
+              <div class="quick-chip-container mt-2">
+                <div class="chip-header-row">
+                  <span class="chip-label" id="room-chip-title">📍 よく使う部屋候補:</span>
+                  <div class="chip-action-btns">
+                    <button type="button" class="btn-chip-action" id="add-room-chip-btn">＋追加</button>
+                    <button type="button" class="btn-chip-action" id="toggle-edit-room-chip-btn">⚙️ 編集</button>
+                  </div>
+                </div>
+                <div id="room-chips" class="chip-group">
+                  <!-- JSで動的生成 -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 現在の階層プレビュー -->
+            <div class="hierarchy-preview">
+              <span class="preview-label">現在の階層パス:</span>
+              <div id="current-path-display" class="path-box">
+                TDR → TDS → ミステリアスアイランド → センター・オブ・ジ・アース → (部屋未入力)
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. アクセス方法グループ -->
+          <div class="card form-section">
+            <div class="section-title">
+              <span class="num-badge">2</span>
+              <h2>アクセス方法・入室ルート</h2>
+            </div>
+            <p class="section-desc">部屋にたどり着くまでの経路や扉・施錠情報を入力します。セキュリティ開錠の要否もワンタップで記録できます。</p>
+
+            <!-- 🔒 セキュリティ開錠の要否 -->
+            <div class="form-group mb-3">
+              <label class="form-label">🔒 セキュリティによる開錠 <span class="req">*</span></label>
+              <div class="security-btn-group" id="security-unlock-group">
+                <button type="button" class="btn-security active" data-val="不要">🔓 不要 (自力開錠/常時開放)</button>
+                <button type="button" class="btn-security" data-val="要開錠">🔒 要セキュリティ開錠</button>
+                <button type="button" class="btn-security" data-val="要立会">👮 要立会 (開錠+立会)</button>
+              </div>
+              <input type="hidden" id="security-unlock-input" value="不要">
+            </div>
+
+            <div class="form-group">
+              <label for="access-input" class="form-label">アクセス方法のメモ</label>
+              <textarea id="access-input" class="form-textarea" rows="3" placeholder="例: バックステージ 外扉 1F 防災センターで鍵借用要。北側通路を進む"></textarea>
+              
+              <!-- アクセス用クイックタグ -->
+              <div class="quick-chip-container mt-2">
+                <div class="chip-header-row">
+                  <span class="chip-label" id="access-chip-title">🚪 よく使うアクセスタグ:</span>
+                  <div class="chip-action-btns">
+                    <button type="button" class="btn-chip-action" id="add-access-chip-btn">＋追加</button>
+                    <button type="button" class="btn-chip-action" id="toggle-edit-access-chip-btn">⚙️ 編集</button>
+                  </div>
+                </div>
+                <div id="access-chips" class="chip-group">
+                  <!-- JSで動的挿入 -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 整備に必要なものグループ -->
+          <div class="card form-section">
+            <div class="section-title">
+              <span class="num-badge">3</span>
+              <h2>整備に必要なもの（脚立・機材）</h2>
+            </div>
+            <p class="section-desc">必要な脚立の尺数やフィルター、資材などを記録します。</p>
+
+            <div class="form-group">
+              <label for="equipment-input" class="form-label">必要な機材・資材</label>
+              <textarea id="equipment-input" class="form-textarea" rows="3" placeholder="例: 9尺脚立 交換用フィルター(4枚) バキューム 脚立養生ソックス"></textarea>
+              
+              <!-- 整備用クイックタグ -->
+              <div class="quick-chip-container mt-2">
+                <div class="chip-header-row">
+                  <span class="chip-label" id="equipment-chip-title">🪜 よく使う機材・脚立タグ:</span>
+                  <div class="chip-action-btns">
+                    <button type="button" class="btn-chip-action" id="add-equipment-chip-btn">＋追加</button>
+                    <button type="button" class="btn-chip-action" id="toggle-edit-equipment-chip-btn">⚙️ 編集</button>
+                  </div>
+                </div>
+                <div id="equipment-chips" class="chip-group">
+                  <!-- JSで動的挿入 -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. 写真撮影グループ (入口 / 部屋 / 対象機 それぞれ専用枠) -->
+          <div class="card form-section">
+            <div class="section-title">
+              <span class="num-badge">4</span>
+              <h2>写真の登録（入口・部屋・機器）</h2>
+            </div>
+            <p class="section-desc">「建物への入口」と「部屋の様子」をそれぞれ専用の枠で確実に撮影・登録できます。</p>
+
+            <!-- 写真枠1: 建物・エリア入口の写真 -->
+            <div class="photo-slot-box mb-3">
+              <div class="slot-header">
+                <span class="slot-title">🚪 ① 建物・エリアの入口写真 <span class="slot-tag">必須推奨</span></span>
+                <span class="slot-desc">最初に建物に入るところ、外扉、周囲の目印など</span>
+              </div>
+              <div class="photo-capture-row mt-1">
+                <label class="btn btn-camera btn-slot">
+                  <span>📸 入口を撮影</span>
+                  <input type="file" id="camera-entrance" accept="image/*" capture="environment" class="file-hidden">
+                </label>
+                <label class="btn btn-album btn-slot">
+                  <span>🖼️ アルバムから選択</span>
+                  <input type="file" id="album-entrance" accept="image/*" class="file-hidden">
+                </label>
+              </div>
+              <div id="entrance-preview-grid" class="photo-grid mt-2">
+                <!-- JSで動的レンダリング -->
+              </div>
+            </div>
+
+            <!-- 写真枠2: 部屋・機械室の写真 -->
+            <div class="photo-slot-box mb-3">
+              <div class="slot-header">
+                <span class="slot-title">🏢 ② 部屋・機械室の写真 <span class="slot-tag">必須推奨</span></span>
+                <span class="slot-desc">機械室の扉番号、室内全景、足元の状況など</span>
+              </div>
+              <div class="photo-capture-row mt-1">
+                <label class="btn btn-camera btn-slot">
+                  <span>📸 部屋を撮影</span>
+                  <input type="file" id="camera-room" accept="image/*" capture="environment" class="file-hidden">
+                </label>
+                <label class="btn btn-album btn-slot">
+                  <span>🖼️ アルバムから選択</span>
+                  <input type="file" id="album-room" accept="image/*" class="file-hidden">
+                </label>
+              </div>
+              <div id="room-preview-grid" class="photo-grid mt-2">
+                <!-- JSで動的レンダリング -->
+              </div>
+            </div>
+
+            <!-- 写真枠3: 対象機・フィルター・その他写真 -->
+            <div class="photo-slot-box">
+              <div class="slot-header">
+                <span class="slot-title">⚙️ ③ 対象機・銘板・注意箇所写真 (任意)</span>
+                <span class="slot-desc">空調機本体、フィルター設置部、型番銘板など (複数枚可)</span>
+              </div>
+              <div class="photo-capture-row mt-1">
+                <label class="btn btn-camera btn-slot">
+                  <span>📸 機器を撮影</span>
+                  <input type="file" id="camera-equipment" accept="image/*" capture="environment" class="file-hidden">
+                </label>
+                <label class="btn btn-album btn-slot">
+                  <span>🖼️ アルバムから選択</span>
+                  <input type="file" id="album-equipment" accept="image/*" multiple class="file-hidden">
+                </label>
+              </div>
+              <div id="equipment-preview-grid" class="photo-grid mt-2">
+                <!-- JSで動的レンダリング -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. 空調機の種類と台数 -->
+          <div class="card form-section">
+            <div class="section-title">
+              <span class="num-badge">5</span>
+              <h2>空調機の種類と台数</h2>
+              <span class="badge-total-units" id="total-units-badge">合計: 0台</span>
+            </div>
+            <p class="section-desc">部屋にある空調機の台数をタップでカウントできます。パッケージ(PAC)は形式別に細かく記録できます。</p>
+
+            <!-- パッケージエアコン (PAC) 形式別グループ -->
+            <div class="pac-main-box mb-3">
+              <div class="pac-header-row">
+                <div class="pac-title-info">
+                  <span class="pac-main-title">❄️ パッケージエアコン (PAC)</span>
+                  <span class="pac-main-sub">天カセ・床置き・天吊り・壁掛け等</span>
+                </div>
+                <span class="badge-pac-subtotal" id="pac-subtotal-badge">PAC計: 0台</span>
+              </div>
+
+              <div class="pac-types-grid mt-2">
+                <!-- 天カセ -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">天カセ</span>
+                    <span class="cell-desc">天井カセット</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-cassette-count">－</button>
+                    <input type="number" id="pac-cassette-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-cassette-count">＋</button>
+                  </div>
+                </div>
+
+                <!-- 床置き -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">床置き</span>
+                    <span class="cell-desc">床置形</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-floor-count">－</button>
+                    <input type="number" id="pac-floor-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-floor-count">＋</button>
+                  </div>
+                </div>
+
+                <!-- 天吊り -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">天吊り</span>
+                    <span class="cell-desc">天井吊形</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-ceiling-count">－</button>
+                    <input type="number" id="pac-ceiling-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-ceiling-count">＋</button>
+                  </div>
+                </div>
+
+                <!-- 壁掛け -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">壁掛け</span>
+                    <span class="cell-desc">壁掛形</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-wall-count">－</button>
+                    <input type="number" id="pac-wall-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-wall-count">＋</button>
+                  </div>
+                </div>
+
+                <!-- その他PAC -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">その他PAC</span>
+                    <span class="cell-desc">ビルトイン等</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-other-count">－</button>
+                    <input type="number" id="pac-other-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-other-count">＋</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 全熱交換器 & ファンコイル -->
+            <div class="equipment-steppers-grid">
+              <!-- 全熱交換器 (HEX) -->
+              <div class="stepper-card">
+                <div class="stepper-info">
+                  <span class="stepper-title">🔄 全熱交換器 (全熱)</span>
+                  <span class="stepper-sub">ロスナイ・ベンティエール等</span>
+                </div>
+                <div class="stepper-controls">
+                  <button type="button" class="btn-step" data-action="dec" data-target="hex-count">－</button>
+                  <input type="number" id="hex-count" class="stepper-input" value="0" min="0" max="99">
+                  <button type="button" class="btn-step" data-action="inc" data-target="hex-count">＋</button>
+                </div>
+              </div>
+
+              <!-- ファンコイルユニット (FCU) -->
+              <div class="stepper-card">
+                <div class="stepper-info">
+                  <span class="stepper-title">💨 ファンコイル (FCU)</span>
+                  <span class="stepper-sub">FCU・冷温水コイル等</span>
+                </div>
+                <div class="stepper-controls">
+                  <button type="button" class="btn-step" data-action="dec" data-target="fcu-count">－</button>
+                  <input type="number" id="fcu-count" class="stepper-input" value="0" min="0" max="99">
+                  <button type="button" class="btn-step" data-action="inc" data-target="fcu-count">＋</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-row mt-3">
+              <div class="form-group col-half">
+                <label for="other-equip-input" class="form-label">その他機器 (AHU/ファン等)</label>
+                <input type="text" id="other-equip-input" class="form-input" placeholder="例: AHU 1台, 給排気ファン 2台">
+              </div>
+              <div class="form-group col-half">
+                <label for="filter-spec-input" class="form-label">フィルター仕様・寸法</label>
+                <input type="text" id="filter-spec-input" class="form-input" placeholder="例: 500x500 4枚, ロングライフ">
+              </div>
+            </div>
+
+            <div class="form-group mt-2">
+              <label for="machine-no-input" class="form-label">機番・系統名 (任意)</label>
+              <input type="text" id="machine-no-input" class="form-input" placeholder="例: PAC-1, PAC-2, 全熱-1">
+            </div>
+
+            <div class="form-group mt-2">
+              <label for="notes-input" class="form-label">特記事項・安全上の注意</label>
+              <input type="text" id="notes-input" class="form-input" placeholder="例: 天井低め頭上注意, 足元グレーチングあり">
+            </div>
+          </div>
+
+          <!-- 登録ボタン (下部フローティング対応) -->
+          <div class="form-actions-sticky">
+            <button type="submit" id="save-btn" class="btn btn-primary btn-block btn-lg">
+              💾 この内容をリストに追加
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ================= タブ2: 階層リスト一覧 ================= -->
+      <section id="tab-list" class="tab-pane">
+        <!-- 検索・フィルターバー -->
+        <div class="list-controls card">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="list-search-input" class="form-input" placeholder="検索 (施設、部屋、脚立、アクセス等)">
+            <button type="button" id="clear-search-btn" class="btn-clear hidden">✕</button>
+          </div>
+
+          <div class="filter-row mt-2">
+            <select id="filter-park-select" class="form-select select-sm">
+              <option value="">全パーク</option>
+              <option value="TDS">TDS (シー)</option>
+              <option value="TDL">TDL (ランド)</option>
+              <option value="HOTEL">ホテル</option>
+              <option value="OTHER">その他</option>
+            </select>
+            <select id="filter-equipment-select" class="form-select select-sm">
+              <option value="">全機材</option>
+              <option value="9尺">9尺脚立</option>
+              <option value="8尺">8尺脚立</option>
+              <option value="6尺">6尺脚立</option>
+              <option value="4尺">4尺脚立</option>
+              <option value="フィルター">フィルター</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 一覧件数とクイック操作 -->
+        <div class="list-summary-bar">
+          <span id="filtered-count-text">全 0 件中 0 件表示</span>
+          <button type="button" id="scroll-to-top-btn" class="btn-link">↑ 先頭へ</button>
+        </div>
+
+        <!-- カード一覧コンテナ -->
+        <div id="records-container" class="records-container">
+          <!-- JSで動的レンダリング -->
+        </div>
+
+        <!-- 空表示 -->
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">📝</div>
+          <h3>登録データがありません</h3>
+          <p>「現場入力」タブから各所の情報を入力してください。<br>入力したデータはスマホ内に自動保存されます。</p>
+          <button type="button" class="btn btn-primary mt-3" onclick="app.switchTab('tab-input')">現場入力を始める</button>
+        </div>
+      </section>
+
+      <!-- ================= タブ3: スプレッドシート出力 ================= -->
+      <section id="tab-export" class="tab-pane">
+        <div class="card">
+          <div class="section-title">
+            <span class="num-badge">📊</span>
+            <h2>スプレッドシート連携・出力</h2>
+          </div>
+          <p class="section-desc">
+            階層ごとに整理されたリストを、ExcelやGoogleスプレッドシートですぐに使える形式で出力します。
+          </p>
+
+          <!-- アクションボタングリッド -->
+          <div class="export-btn-grid">
+            <!-- 1. クリップボードにコピー (一番使いやすい) -->
+            <button type="button" id="copy-tsv-btn" class="btn btn-export btn-tsv">
+              <span class="btn-icon">📋</span>
+              <div class="btn-text">
+                <strong>スプレッドシート貼付用コピー</strong>
+                <small>Googleスプレッドシート等に直接ペースト可能 (TSV)</small>
+              </div>
+            </button>
+
+            <!-- 2. Excel (XLSX) ダウンロード -->
+            <button type="button" id="download-xlsx-btn" class="btn btn-export btn-xlsx">
+              <span class="btn-icon">📗</span>
+              <div class="btn-text">
+                <strong>Excel形式 (.xlsx) ダウンロード</strong>
+                <small>列幅・装飾付きExcelワークブック</small>
+              </div>
+            </button>
+
+            <!-- 3. CSV ダウンロード -->
+            <button type="button" id="download-csv-btn" class="btn btn-export btn-csv">
+              <span class="btn-icon">📥</span>
+              <div class="btn-text">
+                <strong>CSVファイル保存 (Excel文字化け防止BOM付)</strong>
+                <small>標準CSV形式でダウンロード</small>
+              </div>
+            </button>
+          </div>
+
+          <!-- バックアップと復元 -->
+          <div class="backup-section mt-4">
+            <h3>💾 データの完全バックアップ & 復元</h3>
+            <p class="text-sm text-muted">スマホの写真データを含めて丸ごと保存・別端末へ引き継げます。</p>
+            <div class="backup-btn-row mt-2">
+              <button type="button" id="export-json-btn" class="btn btn-sub btn-sm">全データ保存 (JSON)</button>
+              <label class="btn btn-sub btn-sm">
+                データ読込 (復元)
+                <input type="file" id="import-json-input" accept=".json" class="file-hidden">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- スプレッドシートのプレビュー表 -->
+        <div class="card mt-3">
+          <div class="preview-header-row">
+            <h3>📋 スプレッドシート プレビュー (全 <span id="preview-row-count">0</span> 行)</h3>
+            <span class="text-xs text-muted">横スクロール可能</span>
+          </div>
+          <div class="table-scroll-container mt-2">
+            <table id="spreadsheet-preview-table" class="spreadsheet-table">
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>パーク</th>
+                  <th>エリア</th>
+                  <th>施設/アトラクション</th>
+                  <th>部屋名/場所</th>
+                  <th>空調機種別</th>
+                  <th>台数</th>
+                  <th>セキュリティ開錠</th>
+                  <th>整備に必要なもの</th>
+                  <th>アクセス方法</th>
+                  <th>入口写真</th>
+                  <th>部屋写真</th>
+                  <th>機器写真</th>
+                  <th>フィルター仕様</th>
+                  <th>機番・系統</th>
+                  <th>特記事項</th>
+                  <th>階層フルパス</th>
+                  <th>登録日時</th>
+                </tr>
+              </thead>
+              <tbody id="spreadsheet-preview-body">
+                <!-- 動的レンダリング -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= タブ4: 写真付き台帳カルテ (印刷・PDF) ================= -->
+      <section id="tab-report" class="tab-pane">
+        <div class="card no-print">
+          <div class="section-title">
+            <span class="num-badge">🖨️</span>
+            <h2>写真付き現場カルテ（台帳印刷・PDF保存）</h2>
+          </div>
+          <p class="section-desc">
+            階層パス、アクセス方法、必要な脚立、入口写真がセットになった作業台帳です。ブラウザの「印刷」からPDFとして保存できます。
+          </p>
+          <button type="button" id="print-report-btn" class="btn btn-primary btn-lg mt-2">
+            🖨️ このカルテを印刷 / PDF保存する
+          </button>
+        </div>
+
+        <!-- 印刷用レポートコンテナ -->
+        <div id="report-cards-container" class="report-cards-container mt-3">
+          <!-- JSで動的レンダリング -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- 候補追加モーダル -->
+    <div id="candidate-modal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="candidate-modal-title">よく使う候補の追加</h3>
+          <button type="button" id="close-candidate-modal" class="btn-clear">✕</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="candidate-type" value="room">
+          <div class="form-group">
+            <label class="form-label" for="candidate-input-val">追加する名前 <span class="req">*</span></label>
+            <input type="text" id="candidate-input-val" class="form-input text-lg" placeholder="例: 1階機械室No.3, 12尺脚立">
+          </div>
+          <div class="form-group">
+            <label class="form-label">適用する階層・範囲</label>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" name="candidate-scope" value="facility" checked>
+                <span id="scope-facility-label">この施設専用（例: センター・オブ・ジ・アース）</span>
+              </label>
+              <label class="radio-label mt-1">
+                <input type="radio" name="candidate-scope" value="global">
+                <span>全施設共通</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="save-candidate-btn" class="btn btn-primary btn-block">＋ 候補リストに追加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 写真拡大モーダル -->
+    <div id="photo-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <button type="button" id="close-modal-btn" class="modal-close-btn">✕</button>
+        <img id="modal-img" src="" alt="拡大写真">
+        <div id="modal-caption" class="modal-caption"></div>
+      </div>
+    </div>
+
+    <!-- トースト通知 -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <!-- マスターデータとアプリケーションスクリプト -->
+  <script src="master-data.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js').catch(err => {
+          console.warn('SW registration failed:', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
