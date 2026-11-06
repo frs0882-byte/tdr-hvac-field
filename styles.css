@@ -400,11 +400,18 @@ body {
   background-color: #334155;
 }
 
-/* 部屋名チップ (ブルー系) */
-#room-chips .chip {
-  background-color: #1e293b;
-  border: 1px solid #38bdf8;
-  color: #e0f2fe;
+/* 部屋名チップ (ブルー系で完全に統一) */
+#room-chips .chip,
+#room-chips .chip.chip-facility-custom {
+  background-color: rgba(2, 132, 199, 0.25) !important;
+  border: 1px solid #0284c7 !important;
+  color: #e0f2fe !important;
+  font-weight: 600;
+}
+
+#room-chips .chip:active {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
 }
 
 /* アクセスタグ (エメラルドグリーン系: 経路・安全) */

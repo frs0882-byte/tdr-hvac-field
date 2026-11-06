@@ -182,7 +182,7 @@ class HVACApp {
 
       return `
         <button type="button" class="chip ${customClass}" data-target="${targetInputId}" data-val="${this.escapeHtml(item.val)}">
-          <span>${item.isFacilitySpecific ? '★ ' : ''}${this.escapeHtml(item.val)}</span>
+          <span>${this.escapeHtml(item.val)}</span>
           ${deleteBtnHtml}
         </button>
       `;
