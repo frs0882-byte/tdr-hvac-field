@@ -287,7 +287,7 @@ body {
 .park-selector {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  gap: 8px;
 }
 
 .park-btn {
@@ -300,6 +300,10 @@ body {
   font-weight: 700;
   cursor: pointer;
   text-align: center;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.2s;
 }
 
@@ -308,6 +312,19 @@ body {
   color: #fff;
   border-color: #3b82f6;
   box-shadow: var(--shadow-sm);
+}
+
+/* スマホ表示 (480px以下) では2列×2行にして改行を完全に防ぎ、タップしやすくする */
+@media (max-width: 480px) {
+  .park-selector {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .park-btn {
+    padding: 12px 8px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
 }
 
 /* クイックチップ (タグ・キャプション) */
@@ -1596,4 +1613,83 @@ body {
 .mt-4 { margin-top: 16px; }
 .text-xs { font-size: 11px; }
 .text-sm { font-size: 13px; }
+
+/* 共有QRボタン (ヘッダー) */
+.btn-share-header {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-share-header:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+}
+
+.btn-share-header:active {
+  transform: translateY(0);
+}
+
+/* 共有QRモーダル */
+.share-qr-box {
+  max-width: 340px;
+  width: 90%;
+}
+
+.qr-display-box {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 14px;
+  background: #ffffff;
+  border-radius: 12px;
+  margin: 10px auto;
+  width: fit-content;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+#share-qr-code {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#share-qr-code img, #share-qr-code canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.url-copy-box {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.url-copy-box input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  font-size: 11px;
+}
+
+.qr-tips {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  text-align: left;
+}
 .text-muted { color: var(--text-muted); }

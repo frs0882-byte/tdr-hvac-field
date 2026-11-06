@@ -532,12 +532,6 @@ class HVACApp {
         }
       }
       input.dispatchEvent(new Event('input'));
-          input.value = val;
-        } else if (!cur.includes(val)) {
-          input.value = `${cur} ${val}`;
-        }
-      }
-      input.dispatchEvent(new Event('input'));
     });
 
     // 写真スロット入力イベント
@@ -589,6 +583,80 @@ class HVACApp {
         document.getElementById('photo-modal').classList.add('hidden');
       }
     });
+
+    // 共有QRコードモーダル
+    const openShareBtn = document.getElementById('open-share-qr-btn');
+    if (openShareBtn) {
+      openShareBtn.addEventListener('click', () => this.openShareQRModal());
+    }
+    const closeShareBtn = document.getElementById('close-share-qr-modal');
+    if (closeShareBtn) {
+      closeShareBtn.addEventListener('click', () => this.closeShareQRModal());
+    }
+    const doneShareBtn = document.getElementById('done-share-qr-btn');
+    if (doneShareBtn) {
+      doneShareBtn.addEventListener('click', () => this.closeShareQRModal());
+    }
+    const shareModal = document.getElementById('share-qr-modal');
+    if (shareModal) {
+      shareModal.addEventListener('click', (e) => {
+        if (e.target.id === 'share-qr-modal') this.closeShareQRModal();
+      });
+    }
+    const copyShareBtn = document.getElementById('copy-share-url-btn');
+    if (copyShareBtn) {
+      copyShareBtn.addEventListener('click', () => this.copyShareUrl());
+    }
+  }
+
+  // 共有QRコード表示
+  openShareQRModal() {
+    const modal = document.getElementById('share-qr-modal');
+    if (!modal) return;
+
+    let shareUrl = window.location.href.split('#')[0];
+    if (shareUrl.startsWith('file:') || shareUrl.includes('localhost') || shareUrl.includes('127.0.0.1')) {
+      shareUrl = 'https://frs0882-byte.github.io/tdr-hvac-field/';
+    }
+
+    const urlInput = document.getElementById('share-url-input');
+    if (urlInput) urlInput.value = shareUrl;
+
+    const qrContainer = document.getElementById('share-qr-code');
+    if (qrContainer) {
+      qrContainer.innerHTML = '';
+      if (typeof QRCode !== 'undefined') {
+        new QRCode(qrContainer, {
+          text: shareUrl,
+          width: 200,
+          height: 200,
+          colorDark: '#0f172a',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } else {
+        qrContainer.innerHTML = '<span class="text-xs text-muted">QRコード生成中...</span>';
+      }
+    }
+
+    modal.classList.remove('hidden');
+  }
+
+  closeShareQRModal() {
+    const modal = document.getElementById('share-qr-modal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  async copyShareUrl() {
+    const input = document.getElementById('share-url-input');
+    if (!input || !input.value) return;
+
+    try {
+      await navigator.clipboard.writeText(input.value);
+      this.showToast('📋 共有URLをコピーしました！');
+    } catch (e) {
+      this.fallbackCopyText(input.value);
+    }
   }
 
   // ================= 5. 写真撮影 & スロット管理 =================
@@ -1117,39 +1185,6 @@ class HVACApp {
     this.showToast('階層・機器台数・入口写真を引き継ぎました。新しい部屋名を入力してください');
   }
 
-    // 空調機台数も引き継ぎ (PAC形式別・全熱・FCU)
-    const subs = rec.pacSubtypes || {};
-    document.getElementById('pac-cassette-count').value = subs.cassette || 0;
-    document.getElementById('pac-floor-count').value = subs.floor || 0;
-    document.getElementById('pac-ceiling-count').value = subs.ceiling || 0;
-    document.getElementById('pac-wall-count').value = subs.wall || 0;
-    document.getElementById('pac-other-count').value = subs.other || (rec.pacCount && !subs.cassette && !subs.floor && !subs.ceiling && !subs.wall ? rec.pacCount : 0);
-    document.getElementById('hex-count').value = rec.hexCount || 0;
-    document.getElementById('fcu-count').value = rec.fcuCount || 0;
-    document.getElementById('other-equip-input').value = rec.otherEquipment || '';
-    this.updateTotalUnits();
-
-    document.getElementById('machine-no-input').value = rec.machineNo || '';
-    document.getElementById('filter-spec-input').value = rec.filterSpec || '';
-    document.getElementById('notes-input').value = rec.notes || '';
-
-    // 入口写真は引き継ぐ
-    const normalized = this.normalizePhotos(rec);
-    this.currentPhotos = {
-      entrance: [...(normalized.entrance || [])],
-      room: [],
-      equipment: []
-    };
-
-    this.renderAllPhotoSlots();
-    this.updatePathPreview();
-    this.renderAllChips();
-
-    this.switchTab('tab-input');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    this.showToast('階層・機器台数・入口写真を引き継ぎました。新しい部屋名を入力してください');
-  }
-
   async confirmDelete(id) {
     if (!confirm('この登録データを削除してもよろしいですか？')) return;
     try {
@@ -1605,12 +1640,6 @@ class HVACApp {
       { wch: 45 }, // フルパス
       { wch: 20 }  // 登録日時
     ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'TDR空調設備リスト');
-    XLSX.writeFile(wb, `TDR_空調設備現場リスト_${this.getFormattedDate()}.xlsx`);
-    this.showToast('📗 Excelファイルをダウンロードしました');
-  }
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'TDR空調設備リスト');

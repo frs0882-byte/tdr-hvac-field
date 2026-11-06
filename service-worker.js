@@ -1,5 +1,5 @@
 // Service Worker for TDR HVAC Field List (Offline PWA)
-const CACHE_NAME = 'tdr-hvac-field-v8';
+const CACHE_NAME = 'tdr-hvac-field-v9';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -7,6 +7,7 @@ const ASSETS_TO_CACHE = [
   './styles.css',
   './app.js',
   './master-data.js',
+  './qrcode.min.js',
   './manifest.json',
   './icons/favicon.png',
   './icons/apple-touch-icon.png',

@@ -26,6 +26,7 @@
         <div class="header-status-row">
           <span id="data-count-badge" class="badge">登録: 0件</span>
           <span class="badge badge-success">● オフライン保存対応</span>
+          <button type="button" id="open-share-qr-btn" class="btn-share-header" title="会社のスマホにQRで共有">📲 共有QR</button>
         </div>
       </div>
     </header>
@@ -656,10 +657,42 @@
       </div>
     </div>
 
+    <!-- 共有用QRコードモーダル -->
+    <div id="share-qr-modal" class="modal-overlay hidden">
+      <div class="modal-card share-qr-box">
+        <div class="modal-header">
+          <h3>📲 会社のスマホに共有</h3>
+          <button type="button" id="close-share-qr-modal" class="btn-clear">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-muted text-center mb-2">
+            会社のスマホのカメラでこのQRコードを読み取ると、すぐに同じツールが開きます。
+          </p>
+          <div class="qr-display-box">
+            <div id="share-qr-code"></div>
+          </div>
+          <div class="url-copy-box mt-3">
+            <input type="text" id="share-url-input" class="form-input text-xs" readonly>
+            <button type="button" id="copy-share-url-btn" class="btn btn-primary btn-sm">📋 URLコピー</button>
+          </div>
+          <div class="qr-tips mt-3">
+            <p class="text-xs text-muted">
+              💡 <strong>現場での使い方:</strong> 開いた後、スマホブラウザのメニューから「ホーム画面に追加」を行うと、電波の届かないバックステージでもアプリとしてオフライン動作します。
+            </p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="done-share-qr-btn" class="btn btn-sub btn-block">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <!-- トースト通知 -->
     <div id="toast" class="toast hidden"></div>
   </div>
 
+  <!-- QRコード生成ライブラリ (完全オフライン対応) -->
+  <script src="qrcode.min.js"></script>
   <!-- マスターデータとアプリケーションスクリプト -->
   <script src="master-data.js"></script>
   <script src="app.js"></script>
