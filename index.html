@@ -64,17 +64,17 @@
             <button type="button" id="cancel-edit-btn" class="btn-sm btn-sub">キャンセル</button>
           </div>
 
-          <!-- 1. 階層構造グループ -->
+          <!-- 1. 階層・場所の指定 -->
           <div class="card form-section">
             <div class="section-title">
               <span class="num-badge">1</span>
               <h2>階層・場所の指定</h2>
             </div>
-            <p class="section-desc">TDRの施設マスターからタップで素早く選択できます。</p>
+            <p class="section-desc">パーク、エリア、施設、階層、部屋名を指定します。</p>
 
             <!-- パーク選択ボタングループ -->
             <div class="form-group">
-              <label class="form-label">パーク / エリア区分 <span class="req">*</span></label>
+              <label class="form-label">パーク / 区分 <span class="req">*</span></label>
               <div class="park-selector" id="park-selector">
                 <button type="button" class="park-btn active" data-park="TDS">TDS (シー)</button>
                 <button type="button" class="park-btn" data-park="TDL">TDL (ランド)</button>
@@ -92,7 +92,21 @@
               <select id="area-select" class="form-select">
                 <!-- 動的生成 -->
               </select>
-              <input type="text" id="area-manual" class="form-input hidden mt-1" placeholder="エリア名を手入力 (例: その他、仮設工区)">
+              <input type="text" id="area-manual" class="form-input hidden mt-1" placeholder="エリア名を入力 (例: ポートディスカバリー)">
+              
+              <!-- エリア候補チップ -->
+              <div id="area-chips-container" class="quick-chip-container mt-1">
+                <div class="chip-header-row">
+                  <span class="chip-label">🏷️ よく使うエリア候補:</span>
+                  <div class="chip-action-btns">
+                    <button type="button" class="btn-chip-action" id="add-area-chip-btn">＋追加</button>
+                    <button type="button" class="btn-chip-action" id="toggle-edit-area-chip-btn">⚙️ 編集</button>
+                  </div>
+                </div>
+                <div id="area-chips" class="chip-group">
+                  <!-- JSで動的生成 -->
+                </div>
+              </div>
             </div>
 
             <!-- 施設 / アトラクション名 -->
@@ -102,23 +116,57 @@
                 <button type="button" id="toggle-manual-facility" class="btn-link">✏️ 自由入力に切替</button>
               </div>
               <div id="facility-select-container">
-                <input type="text" id="facility-filter" class="form-input" placeholder="🔍 施設名で絞り込み (例: センター)" autocomplete="off">
+                <input type="text" id="facility-filter" class="form-input" placeholder="🔍 施設名で絞り込み" autocomplete="off">
                 <select id="facility-select" class="form-select mt-1">
                   <!-- 動的生成 -->
                 </select>
               </div>
-              <input type="text" id="facility-manual" class="form-input hidden" placeholder="施設・建物名を手入力">
+              <input type="text" id="facility-manual" class="form-input hidden" placeholder="施設・建物名を入力 (例: センター・オブ・ジ・アース)">
+
+              <!-- 施設候補チップ -->
+              <div id="facility-chips-container" class="quick-chip-container mt-1">
+                <div class="chip-header-row">
+                  <span class="chip-label">🏰 よく使う施設候補:</span>
+                  <div class="chip-action-btns">
+                    <button type="button" class="btn-chip-action" id="add-facility-chip-btn">＋追加</button>
+                    <button type="button" class="btn-chip-action" id="toggle-edit-facility-chip-btn">⚙️ 編集</button>
+                  </div>
+                </div>
+                <div id="facility-chips" class="chip-group">
+                  <!-- JSで動的生成 -->
+                </div>
+              </div>
             </div>
 
-            <!-- 部屋・場所 (機械室No) -->
+            <!-- 階層（1Fなど） -->
             <div class="form-group">
-              <label for="room-input" class="form-label">部屋名 / 機械室No <span class="req">*</span></label>
-              <input type="text" id="room-input" class="form-input text-lg" placeholder="例: 1階機械室No.2, 屋上PACスペース" required>
+              <label for="floor-input" class="form-label">階層（1Fなど） <span class="req">*</span></label>
+              <input type="text" id="floor-input" class="form-input" placeholder="例: 1F, 2F, B1F, 屋上" required>
+              
+              <!-- 階層候補チップ -->
+              <div class="quick-chip-container mt-1">
+                <div class="chip-header-row">
+                  <span class="chip-label">🏢 よく使う階層候補:</span>
+                  <div class="chip-action-btns">
+                    <button type="button" class="btn-chip-action" id="add-floor-chip-btn">＋追加</button>
+                    <button type="button" class="btn-chip-action" id="toggle-edit-floor-chip-btn">⚙️ 編集</button>
+                  </div>
+                </div>
+                <div id="floor-chips" class="chip-group">
+                  <!-- JSで動的生成 -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 部屋名 -->
+            <div class="form-group">
+              <label for="room-input" class="form-label">部屋名 <span class="req">*</span></label>
+              <input type="text" id="room-input" class="form-input text-lg" placeholder="例: 機械室No.2, 屋上PACスペース" required>
               
               <!-- 部屋名のクイック候補チップ -->
               <div class="quick-chip-container mt-2">
                 <div class="chip-header-row">
-                  <span class="chip-label" id="room-chip-title">📍 よく使う部屋候補:</span>
+                  <span class="chip-label" id="room-chip-title">📍 よく使う部屋名候補:</span>
                   <div class="chip-action-btns">
                     <button type="button" class="btn-chip-action" id="add-room-chip-btn">＋追加</button>
                     <button type="button" class="btn-chip-action" id="toggle-edit-room-chip-btn">⚙️ 編集</button>
@@ -134,33 +182,22 @@
             <div class="hierarchy-preview">
               <span class="preview-label">現在の階層パス:</span>
               <div id="current-path-display" class="path-box">
-                TDR → TDS → ミステリアスアイランド → センター・オブ・ジ・アース → (部屋未入力)
+                TDR → TDS → (エリア未入力) → (施設未入力) → (階層未入力) → (部屋未入力)
               </div>
             </div>
           </div>
 
-          <!-- 2. アクセス方法グループ -->
+          <!-- 2. アクセス（オンステージ、バックステージ） -->
           <div class="card form-section">
             <div class="section-title">
               <span class="num-badge">2</span>
-              <h2>アクセス方法・入室ルート</h2>
+              <h2>アクセス（オンステージ、バックステージ）</h2>
             </div>
-            <p class="section-desc">部屋にたどり着くまでの経路や扉・施錠情報を入力します。セキュリティ開錠の要否もワンタップで記録できます。</p>
-
-            <!-- 🔒 セキュリティ開錠の要否 -->
-            <div class="form-group mb-3">
-              <label class="form-label">🔒 セキュリティによる開錠 <span class="req">*</span></label>
-              <div class="security-btn-group" id="security-unlock-group">
-                <button type="button" class="btn-security active" data-val="不要">🔓 不要 (自力開錠/常時開放)</button>
-                <button type="button" class="btn-security" data-val="要開錠">🔒 要セキュリティ開錠</button>
-                <button type="button" class="btn-security" data-val="要立会">👮 要立会 (開錠+立会)</button>
-              </div>
-              <input type="hidden" id="security-unlock-input" value="不要">
-            </div>
+            <p class="section-desc">部屋にたどり着くまでの経路や入室ルート（オンステージ/バックステージなど）を記録します。</p>
 
             <div class="form-group">
               <label for="access-input" class="form-label">アクセス方法のメモ</label>
-              <textarea id="access-input" class="form-textarea" rows="3" placeholder="例: バックステージ 外扉 1F 防災センターで鍵借用要。北側通路を進む"></textarea>
+              <textarea id="access-input" class="form-textarea" rows="3" placeholder="例: バックステージ 外扉 通用口から入室。北側通路を進む"></textarea>
               
               <!-- アクセス用クイックタグ -->
               <div class="quick-chip-container mt-2">
@@ -178,13 +215,13 @@
             </div>
           </div>
 
-          <!-- 3. 整備に必要なものグループ -->
+          <!-- 3. 作業に必要なもの -->
           <div class="card form-section">
             <div class="section-title">
               <span class="num-badge">3</span>
-              <h2>整備に必要なもの（脚立・機材）</h2>
+              <h2>作業に必要なもの</h2>
             </div>
-            <p class="section-desc">必要な脚立の尺数やフィルター、資材などを記録します。</p>
+            <p class="section-desc">作業に必要な脚立の尺数やフィルター、資材・道具などを記録します。</p>
 
             <div class="form-group">
               <label for="equipment-input" class="form-label">必要な機材・資材</label>
@@ -193,7 +230,7 @@
               <!-- 整備用クイックタグ -->
               <div class="quick-chip-container mt-2">
                 <div class="chip-header-row">
-                  <span class="chip-label" id="equipment-chip-title">🪜 よく使う機材・脚立タグ:</span>
+                  <span class="chip-label" id="equipment-chip-title">🪜 よく使う機材・資材タグ:</span>
                   <div class="chip-action-btns">
                     <button type="button" class="btn-chip-action" id="add-equipment-chip-btn">＋追加</button>
                     <button type="button" class="btn-chip-action" id="toggle-edit-equipment-chip-btn">⚙️ 編集</button>
@@ -206,11 +243,11 @@
             </div>
           </div>
 
-          <!-- 4. 写真撮影グループ (入口 / 部屋 / 対象機 それぞれ専用枠) -->
+          <!-- 4. 写真の登録 -->
           <div class="card form-section">
             <div class="section-title">
               <span class="num-badge">4</span>
-              <h2>写真の登録（入口・部屋・機器）</h2>
+              <h2>写真の登録</h2>
             </div>
             <p class="section-desc">「建物への入口」と「部屋の様子」をそれぞれ専用の枠で確実に撮影・登録できます。</p>
 
@@ -543,11 +580,11 @@
                   <th>パーク</th>
                   <th>エリア</th>
                   <th>施設/アトラクション</th>
-                  <th>部屋名/場所</th>
+                  <th>階層</th>
+                  <th>部屋名</th>
                   <th>空調機種別</th>
                   <th>台数</th>
-                  <th>セキュリティ開錠</th>
-                  <th>整備に必要なもの</th>
+                  <th>作業に必要なもの</th>
                   <th>アクセス方法</th>
                   <th>入口写真</th>
                   <th>部屋写真</th>
@@ -600,21 +637,8 @@
         <div class="modal-body">
           <input type="hidden" id="candidate-type" value="room">
           <div class="form-group">
-            <label class="form-label" for="candidate-input-val">追加する名前 <span class="req">*</span></label>
-            <input type="text" id="candidate-input-val" class="form-input text-lg" placeholder="例: 1階機械室No.3, 12尺脚立">
-          </div>
-          <div class="form-group">
-            <label class="form-label">適用する階層・範囲</label>
-            <div class="radio-group">
-              <label class="radio-label">
-                <input type="radio" name="candidate-scope" value="facility" checked>
-                <span id="scope-facility-label">この施設専用（例: センター・オブ・ジ・アース）</span>
-              </label>
-              <label class="radio-label mt-1">
-                <input type="radio" name="candidate-scope" value="global">
-                <span>全施設共通</span>
-              </label>
-            </div>
+            <label class="form-label" for="candidate-input-val">追加する名前・タグ <span class="req">*</span></label>
+            <input type="text" id="candidate-input-val" class="form-input text-lg" placeholder="名前を入力">
           </div>
         </div>
         <div class="modal-footer">

@@ -351,14 +351,14 @@ body {
 }
 
 /* ＋追加ボタン */
-#add-room-chip-btn, #add-access-chip-btn, #add-equipment-chip-btn {
+#add-area-chip-btn, #add-facility-chip-btn, #add-floor-chip-btn, #add-room-chip-btn, #add-access-chip-btn, #add-equipment-chip-btn {
   background: linear-gradient(135deg, #0284c7, #0369a1);
   border-color: #38bdf8;
   color: #fff;
 }
 
 /* 編集ボタン */
-#toggle-edit-room-chip-btn, #toggle-edit-access-chip-btn, #toggle-edit-equipment-chip-btn {
+#toggle-edit-area-chip-btn, #toggle-edit-facility-chip-btn, #toggle-edit-floor-chip-btn, #toggle-edit-room-chip-btn, #toggle-edit-access-chip-btn, #toggle-edit-equipment-chip-btn {
   background-color: #1e293b;
   border-color: #64748b;
   color: #cbd5e1;
@@ -398,6 +398,44 @@ body {
 .chip:active {
   transform: scale(0.95);
   background-color: #334155;
+}
+
+/* エリアチップ (パープル/インディゴ系) */
+#area-chips .chip {
+  background-color: rgba(99, 102, 241, 0.25);
+  border: 1px solid #6366f1;
+  color: #c7d2fe;
+}
+#area-chips .chip:active, #area-chips .chip.active-chip {
+  background-color: #4f46e5 !important;
+  border-color: #818cf8 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+/* 施設チップ (ティール/シアン系) */
+#facility-chips .chip {
+  background-color: rgba(13, 148, 136, 0.25);
+  border: 1px solid #0d9488;
+  color: #99f6e4;
+}
+#facility-chips .chip:active, #facility-chips .chip.active-chip {
+  background-color: #0f766e !important;
+  border-color: #2dd4bf !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(13, 148, 136, 0.5);
+}
+
+/* 階層チップ (アンバー/ゴールド系) */
+#floor-chips .chip {
+  background-color: rgba(217, 119, 6, 0.25);
+  border: 1px solid #d97706;
+  color: #fef3c7;
+}
+#floor-chips .chip:active, #floor-chips .chip.active-chip {
+  background-color: #b45309 !important;
+  border-color: #f59e0b !important;
+  color: #ffffff !important;
 }
 
 /* 部屋名チップ (ブルー系で完全に統一) */
