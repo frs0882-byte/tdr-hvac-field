@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#1a202c">
+  <meta name="theme-color" content="#ff0055">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="manifest" href="manifest.json?v=2">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=2">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
+  <link rel="manifest" href="manifest.json?v=7">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=7">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=7">
   <title>TDR空調設備 現場リスト管理</title>
   <link rel="stylesheet" href="styles.css">
   <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
@@ -63,6 +63,15 @@
           <div id="edit-indicator" class="edit-indicator hidden">
             <span>✏️ 登録データを編集中です</span>
             <button type="button" id="cancel-edit-btn" class="btn-sm btn-sub">キャンセル</button>
+          </div>
+
+          <!-- オフライン＆タスク終了時の自動下書き保護ステータスバー -->
+          <div id="draft-status-bar" class="draft-status-bar">
+            <div class="draft-status-left">
+              <span class="draft-dot" id="draft-status-dot"></span>
+              <span id="draft-status-text">🛡️ 自動保存ON（オフライン・タスク終了時も入力途中の内容を保持）</span>
+            </div>
+            <button type="button" id="clear-draft-btn" class="btn-draft-clear" title="入力途中の内容をクリア">🗑️ 入力クリア</button>
           </div>
 
           <!-- 1. 階層・場所の指定 -->
@@ -465,31 +474,103 @@
 
       <!-- ================= タブ2: 階層リスト一覧 ================= -->
       <section id="tab-list" class="tab-pane">
-        <!-- 検索・フィルターバー -->
+        <!-- まとめ方（表示モード）切替バー -->
+        <div class="card view-mode-card">
+          <div class="view-mode-header">
+            <span class="view-mode-label">📊 データのまとめ方・表示切替（6種類）:</span>
+            <button type="button" id="go-to-export-with-view-btn" class="btn-link">📊 この条件でシート出力へ →</button>
+          </div>
+          <div class="view-mode-tabs" id="list-view-modes">
+            <button type="button" class="view-mode-btn active" data-view="card">📑 部屋カード</button>
+            <button type="button" class="view-mode-btn" data-view="tree">🌳 階層ツリー</button>
+            <button type="button" class="view-mode-btn" data-view="equip">❄️ 機種別集計</button>
+            <button type="button" class="view-mode-btn" data-view="gear">🪜 機材・アクセス別</button>
+            <button type="button" class="view-mode-btn" data-view="spec">📐 フィルター仕様別</button>
+            <button type="button" class="view-mode-btn" data-view="table">📊 表プレビュー</button>
+          </div>
+        </div>
+
+        <!-- 検索・フィルター・並べ替えバー -->
         <div class="list-controls card">
           <div class="search-box">
             <span class="search-icon">🔍</span>
-            <input type="text" id="list-search-input" class="form-input" placeholder="検索 (施設、部屋、脚立、アクセス等)">
+            <input type="text" id="list-search-input" class="form-input" placeholder="フリーワード検索 (施設、部屋、階層、脚立、アクセス、機番、備考)">
             <button type="button" id="clear-search-btn" class="btn-clear hidden">✕</button>
           </div>
 
-          <div class="filter-row mt-2">
+          <!-- フィルタ第1行: パーク・エリア・施設 -->
+          <div class="filter-grid mt-2">
             <select id="filter-park-select" class="form-select select-sm">
-              <option value="">全パーク</option>
+              <option value="">🏰 全パーク</option>
               <option value="TDS">TDS (シー)</option>
               <option value="TDL">TDL (ランド)</option>
               <option value="HOTEL">ホテル</option>
               <option value="OTHER">その他</option>
             </select>
+            <select id="filter-area-select" class="form-select select-sm">
+              <option value="">🗺️ 全エリア</option>
+            </select>
+            <select id="filter-facility-select" class="form-select select-sm">
+              <option value="">🏢 全施設</option>
+            </select>
+          </div>
+
+          <!-- フィルタ第2行: 階層・空調機種・必要機材・写真有無 -->
+          <div class="filter-grid mt-2">
+            <select id="filter-floor-select" class="form-select select-sm">
+              <option value="">📶 全階層</option>
+            </select>
+            <select id="filter-unit-type-select" class="form-select select-sm">
+              <option value="">❄️ 全空調機種</option>
+              <option value="cassette">PAC (天カセ)</option>
+              <option value="floor">PAC (床置き)</option>
+              <option value="ceiling">PAC (天吊り)</option>
+              <option value="wall">PAC (壁掛け)</option>
+              <option value="pac_any">PAC (すべて)</option>
+              <option value="hex">全熱交換器 (HEX)</option>
+              <option value="fcu">ファンコイル (FCU)</option>
+              <option value="other">その他機器</option>
+            </select>
             <select id="filter-equipment-select" class="form-select select-sm">
-              <option value="">全機材</option>
+              <option value="">🪜 全機材・脚立</option>
               <option value="9尺">9尺脚立</option>
               <option value="8尺">8尺脚立</option>
+              <option value="7尺">7尺脚立</option>
               <option value="6尺">6尺脚立</option>
               <option value="4尺">4尺脚立</option>
               <option value="フィルター">フィルター</option>
+              <option value="バックステージ">バックステージ</option>
+              <option value="オンステージ">オンステージ</option>
+            </select>
+            <select id="filter-photo-select" class="form-select select-sm">
+              <option value="">📷 写真: すべて</option>
+              <option value="has_photo">📷 写真あり</option>
+              <option value="missing_photo">⚠️ 未撮影枠あり</option>
             </select>
           </div>
+
+          <!-- 並べ替え（ソート）＆フィルタリセット行 -->
+          <div class="sort-reset-row mt-2">
+            <div class="sort-box">
+              <span class="sort-label">⇅ 並替:</span>
+              <select id="sort-order-select" class="form-select select-sm">
+                <option value="hierarchy">🏰 パーク ＞ エリア ＞ 施設 ＞ 階層順</option>
+                <option value="date-desc">🕐 登録日時（新しい順）</option>
+                <option value="date-asc">🕐 登録日時（古い順）</option>
+                <option value="facility-asc">🏢 施設・建物名順（五十音/ABC）</option>
+                <option value="floor-asc">📶 階層順（地下 → 地上 → 屋上）</option>
+                <option value="units-desc">❄️ 空調機の台数が多い順</option>
+                <option value="units-asc">❄️ 空調機の台数が少ない順</option>
+                <option value="ladder-desc">🪜 脚立サイズが大きい順 (9尺→4尺)</option>
+              </select>
+            </div>
+            <button type="button" id="reset-filters-btn" class="btn btn-sub btn-sm">🔄 条件リセット</button>
+          </div>
+        </div>
+
+        <!-- 絞り込み結果のリアルタイム集計ダッシュボード -->
+        <div id="filtered-stats-bar" class="filtered-stats-bar">
+          <!-- JSでリアルタイム集計表示 -->
         </div>
 
         <!-- 一覧件数とクイック操作 -->
@@ -498,7 +579,7 @@
           <button type="button" id="scroll-to-top-btn" class="btn-link">↑ 先頭へ</button>
         </div>
 
-        <!-- カード一覧コンテナ -->
+        <!-- カード/グループ一覧コンテナ -->
         <div id="records-container" class="records-container">
           <!-- JSで動的レンダリング -->
         </div>
@@ -520,8 +601,26 @@
             <h2>スプレッドシート連携・出力</h2>
           </div>
           <p class="section-desc">
-            階層ごとに整理されたリストを、ExcelやGoogleスプレッドシートですぐに使える形式で出力します。
+            出力する前に「まとめ方（4種類の表形式）」や「フィルタ・並べ替え条件の適用」を切り替えてプレビュー確認できます。Excel出力(.xlsx)では全4シートを一括出力します。
           </p>
+
+          <!-- 出力前のまとめ方（シート形式）選択タブ -->
+          <div class="export-sheet-selector mb-3">
+            <label class="form-label">📑 出力・プレビューする表のまとめ方を選択:</label>
+            <div class="view-mode-tabs" id="export-mode-tabs">
+              <button type="button" class="view-mode-btn active" data-export-mode="expanded">📋 ① 機器別詳細 (18列)</button>
+              <button type="button" class="view-mode-btn" data-export-mode="room_summary">🏢 ② 部屋別まとめ (1行)</button>
+              <button type="button" class="view-mode-btn" data-export-mode="facility_summary">🏰 ③ 施設・階層別集計</button>
+              <button type="button" class="view-mode-btn" data-export-mode="equip_summary">❄️ ④ 機種・仕様別集計</button>
+            </div>
+            <div class="export-filter-sync-row mt-2">
+              <label class="checkbox-label">
+                <input type="checkbox" id="export-use-filter-toggle" checked>
+                <span>🔍 「階層リスト」タブで設定中のフィルタ・並べ替え条件を反映する</span>
+              </label>
+              <span id="export-active-filter-badge" class="badge">全件対象</span>
+            </div>
+          </div>
 
           <!-- アクションボタングリッド -->
           <div class="export-btn-grid">
@@ -529,8 +628,8 @@
             <button type="button" id="copy-tsv-btn" class="btn btn-export btn-tsv">
               <span class="btn-icon">📋</span>
               <div class="btn-text">
-                <strong>スプレッドシート貼付用コピー</strong>
-                <small>Googleスプレッドシート等に直接ペースト可能 (TSV)</small>
+                <strong>現在表示中の表をコピー (スプレッドシート貼付用)</strong>
+                <small>選択中のまとめ方・フィルタ結果のままGoogleスプレッドシートやExcelにペースト可能 (TSV)</small>
               </div>
             </button>
 
@@ -538,8 +637,8 @@
             <button type="button" id="download-xlsx-btn" class="btn btn-export btn-xlsx">
               <span class="btn-icon">📗</span>
               <div class="btn-text">
-                <strong>Excel形式 (.xlsx) ダウンロード</strong>
-                <small>列幅・装飾付きExcelワークブック</small>
+                <strong>Excel形式 (.xlsx) ダウンロード (全4シート収録)</strong>
+                <small>①機器別詳細 / ②部屋別まとめ / ③施設・階層別集計 / ④機種別集計 の4シート一括出力</small>
               </div>
             </button>
 
@@ -547,8 +646,8 @@
             <button type="button" id="download-csv-btn" class="btn btn-export btn-csv">
               <span class="btn-icon">📥</span>
               <div class="btn-text">
-                <strong>CSVファイル保存 (Excel文字化け防止BOM付)</strong>
-                <small>標準CSV形式でダウンロード</small>
+                <strong>現在表示中の表をCSV保存 (文字化け防止BOM付)</strong>
+                <small>選択中のまとめ方の表を標準CSV形式でダウンロード</small>
               </div>
             </button>
           </div>
@@ -570,12 +669,12 @@
         <!-- スプレッドシートのプレビュー表 -->
         <div class="card mt-3">
           <div class="preview-header-row">
-            <h3>📋 スプレッドシート プレビュー (全 <span id="preview-row-count">0</span> 行)</h3>
+            <h3 id="preview-table-title">📋 スプレッドシート プレビュー (全 <span id="preview-row-count">0</span> 行)</h3>
             <span class="text-xs text-muted">横スクロール可能</span>
           </div>
           <div class="table-scroll-container mt-2">
             <table id="spreadsheet-preview-table" class="spreadsheet-table">
-              <thead>
+              <thead id="spreadsheet-preview-head">
                 <tr>
                   <th>No</th>
                   <th>パーク</th>

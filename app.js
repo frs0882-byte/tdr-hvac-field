@@ -6,6 +6,8 @@ const APP_DB_NAME = 'TDR_HVAC_FieldDB';
 const APP_DB_VERSION = 1;
 const STORE_NAME = 'records';
 const CANDIDATES_STORAGE_KEY = 'TDR_HVAC_UserCaptions_v2';
+const DRAFT_RECORD_ID = '__DRAFT_CURRENT__';
+const DRAFT_LOCAL_KEY = 'TDR_HVAC_DraftBackup_v1';
 
 class HVACApp {
   constructor() {
@@ -24,6 +26,12 @@ class HVACApp {
     this.manualFacility = false;
     this.selectedPark = 'TDS';
 
+    // 一覧タブの表示モード（まとめ方）と出力タブのシートモード
+    this.listViewMode = 'card';         // 'card' | 'tree' | 'equip' | 'gear' | 'spec' | 'table'
+    this.exportSheetMode = 'expanded';  // 'expanded' | 'room_summary' | 'facility_summary' | 'equip_summary'
+    this.isRestoringDraft = false;
+    this.draftTimer = null;
+
     // 候補チップの編集モード状態
     this.chipEditState = {
       area: false,
@@ -40,12 +48,25 @@ class HVACApp {
 
   // 初期化
   async init() {
+    await this.requestPersistentStorage();
     await this.initDB();
     this.setupUI();
     this.bindEvents();
     await this.loadRecords();
     this.updateParkAreas();
     this.updateTotalUnits();
+    await this.restoreDraftIfPresent();
+  }
+
+  // OSによるストレージ自動削除（キャッシュクリア）を防止する永続化リクエスト
+  async requestPersistentStorage() {
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        await navigator.storage.persist();
+      }
+    } catch (e) {
+      console.warn('Persistent storage request warning:', e);
+    }
   }
 
   // ================= 1. よく使うキャプション管理 (ユーザー自身で追加・削除) =================
@@ -255,8 +276,13 @@ class HVACApp {
       const request = store.getAll();
 
       request.onsuccess = () => {
-        this.records = (request.result || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        // 下書き専用レコード (__DRAFT_CURRENT__) は本登録リストから除外
+        const allItems = request.result || [];
+        this.records = allItems
+          .filter(r => r && r.id !== DRAFT_RECORD_ID)
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         this.updateHeaderBadge();
+        this.updateDynamicFilterOptions();
         this.renderRecordsList();
         this.renderSpreadsheetPreview();
         this.renderReportCards();
@@ -292,6 +318,240 @@ class HVACApp {
     });
   }
 
+  // ================= 3.5. 入力途中データ（ドラフト＋撮影写真）のリアルタイム自動保存・復元 =================
+  collectDraftState() {
+    const { pac, pacSubtypes, hex, fcu, total } = this.updateTotalUnits();
+    return {
+      id: DRAFT_RECORD_ID,
+      editingId: this.editingId || null,
+      selectedPark: this.selectedPark || 'TDS',
+      manualArea: !!this.manualArea,
+      areaSelectVal: document.getElementById('area-select')?.value || '',
+      areaManualVal: document.getElementById('area-manual')?.value || '',
+      manualFacility: !!this.manualFacility,
+      facilitySelectVal: document.getElementById('facility-select')?.value || '',
+      facilityManualVal: document.getElementById('facility-manual')?.value || '',
+      floor: document.getElementById('floor-input')?.value || '',
+      room: document.getElementById('room-input')?.value || '',
+      access: document.getElementById('access-input')?.value || '',
+      equipment: document.getElementById('equipment-input')?.value || '',
+      pacSubtypes: { ...pacSubtypes },
+      pacCount: pac,
+      hexCount: hex,
+      fcuCount: fcu,
+      totalUnits: total,
+      otherEquipment: document.getElementById('other-equip-input')?.value || '',
+      filterSpec: document.getElementById('filter-spec-input')?.value || '',
+      machineNo: document.getElementById('machine-no-input')?.value || '',
+      notes: document.getElementById('notes-input')?.value || '',
+      photos: {
+        entrance: [...(this.currentPhotos.entrance || [])],
+        room: [...(this.currentPhotos.room || [])],
+        equipment: [...(this.currentPhotos.equipment || [])]
+      },
+      savedAt: new Date().toISOString()
+    };
+  }
+
+  isDraftMeaningful(draft) {
+    if (!draft) return false;
+    const hasText = [
+      draft.areaSelectVal, draft.areaManualVal,
+      draft.facilitySelectVal, draft.facilityManualVal,
+      draft.floor, draft.room, draft.access, draft.equipment,
+      draft.otherEquipment, draft.filterSpec, draft.machineNo, draft.notes
+    ].some(v => v && String(v).trim().length > 0 && v !== '__MANUAL__');
+
+    const hasUnits = (draft.totalUnits || 0) > 0;
+    const hasPhotos = (
+      (draft.photos?.entrance?.length || 0) +
+      (draft.photos?.room?.length || 0) +
+      (draft.photos?.equipment?.length || 0)
+    ) > 0;
+
+    return hasText || hasUnits || hasPhotos;
+  }
+
+  scheduleSaveDraft() {
+    if (this.isRestoringDraft) return;
+    const dot = document.getElementById('draft-status-dot');
+    if (dot) dot.classList.add('saving');
+
+    clearTimeout(this.draftTimer);
+    this.draftTimer = setTimeout(() => {
+      this.saveDraftNow();
+    }, 150);
+  }
+
+  async saveDraftNow() {
+    if (this.isRestoringDraft || !this.db) return;
+    try {
+      const draft = this.collectDraftState();
+      // localStorage にも軽量テキストメタデータを即時ミラー保存（タスク強制終了対策）
+      try {
+        const lightDraft = { ...draft, photos: undefined };
+        localStorage.setItem(DRAFT_LOCAL_KEY, JSON.stringify(lightDraft));
+      } catch (e) {}
+
+      // IndexedDB には写真Base64を含む完全データを保存
+      await this.saveRecord(draft);
+
+      const dot = document.getElementById('draft-status-dot');
+      if (dot) dot.classList.remove('saving');
+
+      const statusText = document.getElementById('draft-status-text');
+      if (statusText) {
+        if (this.isDraftMeaningful(draft)) {
+          const t = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const photoCount = (draft.photos.entrance.length + draft.photos.room.length + draft.photos.equipment.length);
+          const photoInfo = photoCount > 0 ? `・写真${photoCount}枚` : '';
+          statusText.textContent = `💾 入力途中データを自動保存済み (${t}${photoInfo}) — タスクを切っても復元されます`;
+        } else {
+          statusText.textContent = '🛡️ 自動保存ON（オフライン・タスク終了時も入力途中の内容を保持）';
+        }
+      }
+    } catch (e) {
+      console.warn('Draft auto-save error:', e);
+    }
+  }
+
+  async clearDraft() {
+    clearTimeout(this.draftTimer);
+    try {
+      localStorage.removeItem(DRAFT_LOCAL_KEY);
+    } catch (e) {}
+    if (this.db) {
+      try {
+        await this.deleteRecord(DRAFT_RECORD_ID);
+      } catch (e) {}
+    }
+    const statusText = document.getElementById('draft-status-text');
+    if (statusText) {
+      statusText.textContent = '🛡️ 自動保存ON（オフライン・タスク終了時も入力途中の内容を保持）';
+    }
+  }
+
+  async restoreDraftIfPresent() {
+    if (!this.db) return;
+    try {
+      const draft = await new Promise((resolve) => {
+        const tx = this.db.transaction([STORE_NAME], 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get(DRAFT_RECORD_ID);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+
+      let targetDraft = draft;
+      if (!targetDraft) {
+        try {
+          const localStr = localStorage.getItem(DRAFT_LOCAL_KEY);
+          if (localStr) targetDraft = JSON.parse(localStr);
+        } catch (e) {}
+      }
+
+      if (!targetDraft || !this.isDraftMeaningful(targetDraft)) {
+        return;
+      }
+
+      this.isRestoringDraft = true;
+
+      // 編集モード状態
+      if (targetDraft.editingId && this.records.some(r => r.id === targetDraft.editingId)) {
+        this.editingId = targetDraft.editingId;
+        document.getElementById('edit-id').value = targetDraft.editingId;
+        document.getElementById('edit-indicator')?.classList.remove('hidden');
+        document.getElementById('save-btn').textContent = '💾 変更を上書き保存';
+      }
+
+      // パーク復元
+      this.selectedPark = targetDraft.selectedPark || 'TDS';
+      document.querySelectorAll('.park-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.park === this.selectedPark);
+      });
+      this.updateParkAreas();
+
+      // エリア復元
+      this.setManualArea(!!targetDraft.manualArea);
+      const areaSelect = document.getElementById('area-select');
+      const areaManual = document.getElementById('area-manual');
+      if (areaManual) areaManual.value = targetDraft.areaManualVal || '';
+      if (areaSelect && targetDraft.areaSelectVal) {
+        if (!Array.from(areaSelect.options).some(o => o.value === targetDraft.areaSelectVal) && targetDraft.areaSelectVal !== '__MANUAL__') {
+          const opt = document.createElement('option');
+          opt.value = targetDraft.areaSelectVal;
+          opt.textContent = targetDraft.areaSelectVal;
+          areaSelect.insertBefore(opt, areaSelect.lastElementChild);
+        }
+        areaSelect.value = targetDraft.areaSelectVal;
+      }
+      this.updateAreaFacilities();
+
+      // 施設復元
+      this.setManualFacility(!!targetDraft.manualFacility);
+      const facSelect = document.getElementById('facility-select');
+      const facManual = document.getElementById('facility-manual');
+      if (facManual) facManual.value = targetDraft.facilityManualVal || '';
+      if (facSelect && targetDraft.facilitySelectVal) {
+        if (!Array.from(facSelect.options).some(o => o.value === targetDraft.facilitySelectVal) && targetDraft.facilitySelectVal !== '__MANUAL__') {
+          const opt = document.createElement('option');
+          opt.value = targetDraft.facilitySelectVal;
+          opt.textContent = targetDraft.facilitySelectVal;
+          facSelect.insertBefore(opt, facSelect.lastElementChild);
+        }
+        facSelect.value = targetDraft.facilitySelectVal;
+      }
+
+      // テキスト項目復元
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val || '';
+      };
+      setVal('floor-input', targetDraft.floor);
+      setVal('room-input', targetDraft.room);
+      setVal('access-input', targetDraft.access);
+      setVal('equipment-input', targetDraft.equipment);
+      setVal('other-equip-input', targetDraft.otherEquipment);
+      setVal('filter-spec-input', targetDraft.filterSpec);
+      setVal('machine-no-input', targetDraft.machineNo);
+      setVal('notes-input', targetDraft.notes);
+
+      // ステッパー台数復元
+      const subs = targetDraft.pacSubtypes || {};
+      setVal('pac-cassette-count', subs.cassette || 0);
+      setVal('pac-floor-count', subs.floor || 0);
+      setVal('pac-ceiling-count', subs.ceiling || 0);
+      setVal('pac-wall-count', subs.wall || 0);
+      setVal('pac-other-count', subs.other || 0);
+      setVal('hex-count', targetDraft.hexCount || 0);
+      setVal('fcu-count', targetDraft.fcuCount || 0);
+      this.updateTotalUnits();
+
+      // 写真復元
+      if (targetDraft.photos) {
+        this.currentPhotos = {
+          entrance: Array.isArray(targetDraft.photos.entrance) ? targetDraft.photos.entrance : [],
+          room: Array.isArray(targetDraft.photos.room) ? targetDraft.photos.room : [],
+          equipment: Array.isArray(targetDraft.photos.equipment) ? targetDraft.photos.equipment : []
+        };
+      }
+      this.renderAllPhotoSlots();
+      this.updatePathPreview();
+      this.renderAllChips();
+
+      this.isRestoringDraft = false;
+
+      const statusText = document.getElementById('draft-status-text');
+      if (statusText) {
+        statusText.textContent = '🔄 前回入力途中だったデータを自動復元しました（続きから入力できます）';
+      }
+      this.showToast('🔄 前回入力途中だったデータを自動復元しました');
+    } catch (e) {
+      this.isRestoringDraft = false;
+      console.warn('Restore draft error:', e);
+    }
+  }
+
   // ================= 4. UIイベント登録 =================
   setupUI() {
     this.renderAllChips();
@@ -313,6 +573,7 @@ class HVACApp {
         this.updateParkAreas();
         this.updatePathPreview();
         this.renderAllChips();
+        this.scheduleSaveDraft();
       });
     });
 
@@ -327,6 +588,7 @@ class HVACApp {
         this.updatePathPreview();
         this.renderAllChips();
       }
+      this.scheduleSaveDraft();
     });
 
     // エリア手入力切替
@@ -338,12 +600,14 @@ class HVACApp {
       this.updateAreaFacilities();
       this.updatePathPreview();
       this.renderAllChips();
+      this.scheduleSaveDraft();
     });
 
     document.getElementById('area-manual').addEventListener('input', () => {
       this.updateAreaFacilities();
       this.updatePathPreview();
       this.renderAllChips();
+      this.scheduleSaveDraft();
     });
 
     // 施設検索
@@ -361,6 +625,7 @@ class HVACApp {
         this.updatePathPreview();
         this.renderAllChips();
       }
+      this.scheduleSaveDraft();
     });
 
     // 施設手入力切替
@@ -371,20 +636,48 @@ class HVACApp {
       }
       this.updatePathPreview();
       this.renderAllChips();
+      this.scheduleSaveDraft();
     });
 
     document.getElementById('facility-manual').addEventListener('input', () => {
       this.updatePathPreview();
       this.renderAllChips();
+      this.scheduleSaveDraft();
     });
 
     document.getElementById('floor-input')?.addEventListener('input', () => {
       this.updatePathPreview();
+      this.scheduleSaveDraft();
     });
 
     document.getElementById('room-input').addEventListener('input', () => {
       this.updatePathPreview();
+      this.scheduleSaveDraft();
     });
+
+    // その他すべての入力欄での自動下書き保存
+    ['access-input', 'equipment-input', 'other-equip-input', 'filter-spec-input', 'machine-no-input', 'notes-input'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => this.scheduleSaveDraft());
+    });
+
+    // 入力クリアボタン（下書き消去）
+    document.getElementById('clear-draft-btn')?.addEventListener('click', async () => {
+      const draft = this.collectDraftState();
+      if (this.isDraftMeaningful(draft)) {
+        if (!confirm('現在入力途中の内容（写真含む）をクリアしてよろしいですか？')) return;
+      }
+      await this.resetForm(true);
+      this.showToast('🗑️ 入力中の内容をクリアしました');
+    });
+
+    // バックグラウンド移行・タスクキル・画面ロック直前の即時保存
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this.saveDraftNow();
+      }
+    });
+    window.addEventListener('pagehide', () => this.saveDraftNow());
+    window.addEventListener('beforeunload', () => this.saveDraftNow());
 
     // ステッパーボタン操作（＋ / －）
     document.querySelectorAll('.btn-step').forEach(btn => {
@@ -402,6 +695,7 @@ class HVACApp {
         }
         input.value = cur;
         this.updateTotalUnits();
+        this.scheduleSaveDraft();
       });
     });
 
@@ -409,7 +703,10 @@ class HVACApp {
     ['pac-cassette-count', 'pac-floor-count', 'pac-ceiling-count', 'pac-wall-count', 'pac-other-count', 'hex-count', 'fcu-count'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
-        el.addEventListener('input', () => this.updateTotalUnits());
+        el.addEventListener('input', () => {
+          this.updateTotalUnits();
+          this.scheduleSaveDraft();
+        });
       }
     });
 
@@ -483,7 +780,6 @@ class HVACApp {
         const sel = document.getElementById('area-select');
         if (sel) {
           sel.value = val;
-          // もしoptionに存在しなければ追加して選択
           if (sel.value !== val) {
             const opt = document.createElement('option');
             opt.value = val;
@@ -496,6 +792,7 @@ class HVACApp {
         this.updateAreaFacilities();
         this.updatePathPreview();
         this.renderAllChips();
+        this.scheduleSaveDraft();
         return;
       }
 
@@ -516,6 +813,7 @@ class HVACApp {
         document.getElementById('facility-manual').value = val;
         this.updatePathPreview();
         this.renderAllChips();
+        this.scheduleSaveDraft();
         return;
       }
 
@@ -532,6 +830,7 @@ class HVACApp {
         }
       }
       input.dispatchEvent(new Event('input'));
+      this.scheduleSaveDraft();
     });
 
     // 写真スロット入力イベント
@@ -550,18 +849,103 @@ class HVACApp {
 
     // フォーム保存
     document.getElementById('record-form').addEventListener('submit', (e) => this.handleFormSubmit(e));
-    document.getElementById('cancel-edit-btn').addEventListener('click', () => this.resetForm());
+    document.getElementById('cancel-edit-btn').addEventListener('click', () => this.resetForm(true));
 
-    // リスト検索・フィルター
-    document.getElementById('list-search-input').addEventListener('input', () => this.renderRecordsList());
+    // 一覧タブ: まとめ方（ビューモード）切替
+    document.querySelectorAll('#list-view-modes .view-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#list-view-modes .view-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.listViewMode = btn.dataset.view || 'card';
+        this.renderRecordsList();
+      });
+    });
+
+    // 一覧タブからシート出力へジャンプ（まとめ方も連動）
+    document.getElementById('go-to-export-with-view-btn')?.addEventListener('click', () => {
+      const viewToExportMap = {
+        card: 'expanded',
+        table: 'expanded',
+        tree: 'facility_summary',
+        equip: 'equip_summary',
+        spec: 'equip_summary',
+        gear: 'room_summary'
+      };
+      this.exportSheetMode = viewToExportMap[this.listViewMode] || 'expanded';
+      document.querySelectorAll('#export-mode-tabs .view-mode-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.exportMode === this.exportSheetMode);
+      });
+      this.switchTab('tab-export');
+    });
+
+    // リスト検索・各種フィルター・ソート
+    document.getElementById('list-search-input').addEventListener('input', (e) => {
+      document.getElementById('clear-search-btn')?.classList.toggle('hidden', !e.target.value);
+      this.renderRecordsList();
+      this.renderSpreadsheetPreview();
+    });
     document.getElementById('clear-search-btn').addEventListener('click', () => {
       document.getElementById('list-search-input').value = '';
+      document.getElementById('clear-search-btn')?.classList.add('hidden');
       this.renderRecordsList();
+      this.renderSpreadsheetPreview();
     });
-    document.getElementById('filter-park-select').addEventListener('change', () => this.renderRecordsList());
-    document.getElementById('filter-equipment-select').addEventListener('change', () => this.renderRecordsList());
+
+    [
+      'filter-park-select',
+      'filter-area-select',
+      'filter-facility-select',
+      'filter-floor-select',
+      'filter-unit-type-select',
+      'filter-equipment-select',
+      'filter-photo-select',
+      'sort-order-select'
+    ].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        this.renderRecordsList();
+        this.renderSpreadsheetPreview();
+      });
+    });
+
+    // フィルター＆ソート条件リセット
+    document.getElementById('reset-filters-btn')?.addEventListener('click', () => {
+      document.getElementById('list-search-input').value = '';
+      document.getElementById('clear-search-btn')?.classList.add('hidden');
+      [
+        'filter-park-select',
+        'filter-area-select',
+        'filter-facility-select',
+        'filter-floor-select',
+        'filter-unit-type-select',
+        'filter-equipment-select',
+        'filter-photo-select'
+      ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      const sortEl = document.getElementById('sort-order-select');
+      if (sortEl) sortEl.value = 'hierarchy';
+      this.renderRecordsList();
+      this.renderSpreadsheetPreview();
+      this.showToast('🔄 フィルタ・並べ替え条件をリセットしました');
+    });
+
     document.getElementById('scroll-to-top-btn').addEventListener('click', () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // シート出力タブ: まとめ方（4種類のシート形式）切替
+    document.querySelectorAll('#export-mode-tabs .view-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#export-mode-tabs .view-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.exportSheetMode = btn.dataset.exportMode || 'expanded';
+        this.renderSpreadsheetPreview();
+      });
+    });
+
+    document.getElementById('export-use-filter-toggle')?.addEventListener('change', () => {
+      this.renderSpreadsheetPreview();
     });
 
     // スプレッドシート出力
@@ -691,6 +1075,8 @@ class HVACApp {
 
     e.target.value = '';
     this.renderAllPhotoSlots();
+    await this.saveDraftNow();
+    this.showToast('📸 写真を追加し、自動下書き保存しました');
   }
 
   resizeImage(file, maxDimension = 1280, quality = 0.82) {
@@ -755,6 +1141,7 @@ class HVACApp {
     if (this.currentPhotos[slotType]) {
       this.currentPhotos[slotType].splice(index, 1);
       this.renderSlotGrid(slotType, `${slotType}-preview-grid`);
+      this.scheduleSaveDraft();
     }
   }
 
@@ -994,10 +1381,11 @@ class HVACApp {
 
     try {
       await this.saveRecord(recordData);
+      await this.clearDraft();
       this.showToast(this.editingId ? 'データを更新しました！' : 'リストに追加しました！');
       
       const wasEditing = !!this.editingId;
-      this.resetForm();
+      await this.resetForm(true);
       await this.loadRecords();
       this.updateParkAreas();
 
@@ -1010,7 +1398,8 @@ class HVACApp {
     }
   }
 
-  resetForm() {
+  async resetForm(alsoClearDraft = true) {
+    this.isRestoringDraft = true;
     this.editingId = null;
     this.currentPhotos = { entrance: [], room: [], equipment: [] };
     document.getElementById('edit-id').value = '';
@@ -1040,6 +1429,11 @@ class HVACApp {
     this.updateParkAreas();
     this.renderAllPhotoSlots();
     this.updatePathPreview();
+    this.isRestoringDraft = false;
+
+    if (alsoClearDraft) {
+      await this.clearDraft();
+    }
   }
 
   // 編集モード
@@ -1047,6 +1441,7 @@ class HVACApp {
     const rec = this.records.find(r => r.id === id);
     if (!rec) return;
 
+    this.isRestoringDraft = true;
     this.editingId = rec.id;
     document.getElementById('edit-id').value = rec.id;
     document.getElementById('edit-indicator').classList.remove('hidden');
@@ -1107,17 +1502,20 @@ class HVACApp {
     this.renderAllPhotoSlots();
     this.updatePathPreview();
     this.renderAllChips();
+    this.isRestoringDraft = false;
+    this.scheduleSaveDraft();
 
     this.switchTab('tab-input');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // 複製（現場神機能）
-  duplicateRecord(id) {
+  async duplicateRecord(id) {
     const rec = this.records.find(r => r.id === id);
     if (!rec) return;
 
-    this.resetForm();
+    await this.resetForm(false);
+    this.isRestoringDraft = true;
 
     this.selectedPark = rec.park;
     document.querySelectorAll('.park-btn').forEach(b => {
@@ -1179,6 +1577,8 @@ class HVACApp {
     this.renderAllPhotoSlots();
     this.updatePathPreview();
     this.renderAllChips();
+    this.isRestoringDraft = false;
+    this.scheduleSaveDraft();
 
     this.switchTab('tab-input');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1219,27 +1619,245 @@ class HVACApp {
     return res;
   }
 
-  // ================= 8. 一覧リストレンダリング =================
+  // ================= 8. 高度なフィルタ・並べ替え・6種のまとめ方（ビュー切替） =================
+  // 階層名の自然順数値変換（B3F -> -3, B1F -> -1, 1F -> 1, 2F -> 2, M2F -> 2.5, R/屋上 -> 99）
+  parseFloorOrder(floorStr) {
+    const s = String(floorStr || '').trim().toUpperCase();
+    if (!s) return 999;
+    if (s.includes('屋上') || s === 'R' || s === 'RF' || s.includes('ROOF')) return 100;
+    const bMatch = s.match(/B\s*(\d+)/) || s.match(/地下\s*(\d+)/);
+    if (bMatch) return -parseInt(bMatch[1], 10);
+    const mMatch = s.match(/M\s*(\d+)/) || s.match(/中\s*(\d+)/);
+    if (mMatch) return parseInt(mMatch[1], 10) + 0.5;
+    const fMatch = s.match(/(\d+)\s*F/) || s.match(/(\d+)\s*階/) || s.match(/^(\d+)$/);
+    if (fMatch) return parseInt(fMatch[1], 10);
+    return 50;
+  }
+
+  // 必要な脚立の最大尺数を抽出（ソート用）
+  parseMaxLadder(equipStr) {
+    const s = String(equipStr || '');
+    const matches = [...s.matchAll(/(\d+)\s*尺/g)];
+    if (matches.length === 0) return 0;
+    return Math.max(...matches.map(m => parseInt(m[1], 10)));
+  }
+
+  // 登録データからエリア・施設・階層のフィルタ選択肢を動的生成
+  updateDynamicFilterOptions() {
+    const populateSelect = (selectId, defaultLabel, values, sortFn) => {
+      const sel = document.getElementById(selectId);
+      if (!sel) return;
+      const prevVal = sel.value;
+      const uniqueVals = Array.from(new Set(values.filter(v => v && String(v).trim().length > 0)));
+      if (sortFn) uniqueVals.sort(sortFn);
+      else uniqueVals.sort((a, b) => a.localeCompare(b, 'ja'));
+
+      sel.innerHTML = `<option value="">${defaultLabel}</option>` +
+        uniqueVals.map(v => `<option value="${this.escapeHtml(v)}">${this.escapeHtml(v)}</option>`).join('');
+      if (prevVal && uniqueVals.includes(prevVal)) {
+        sel.value = prevVal;
+      }
+    };
+
+    populateSelect('filter-area-select', '🗺️ 全エリア', this.records.map(r => r.area));
+    populateSelect('filter-facility-select', '🏢 全施設', this.records.map(r => r.facility));
+    populateSelect(
+      'filter-floor-select',
+      '📶 全階層',
+      this.records.map(r => r.floor),
+      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || a.localeCompare(b, 'ja')
+    );
+  }
+
+  // 現在のフィルタ条件が有効かどうか
+  hasActiveFilters() {
+    const searchWord = (document.getElementById('list-search-input')?.value || '').trim();
+    const filterIds = [
+      'filter-park-select',
+      'filter-area-select',
+      'filter-facility-select',
+      'filter-floor-select',
+      'filter-unit-type-select',
+      'filter-equipment-select',
+      'filter-photo-select'
+    ];
+    return !!searchWord || filterIds.some(id => !!(document.getElementById(id)?.value));
+  }
+
+  // フィルタ＆並べ替え適用済みレコード配列を取得
+  getFilteredAndSortedRecords(ignoreFilter = false) {
+    let list = [...this.records];
+
+    if (!ignoreFilter) {
+      const searchWord = (document.getElementById('list-search-input')?.value || '').trim().toLowerCase();
+      const filterPark = document.getElementById('filter-park-select')?.value || '';
+      const filterArea = document.getElementById('filter-area-select')?.value || '';
+      const filterFacility = document.getElementById('filter-facility-select')?.value || '';
+      const filterFloor = document.getElementById('filter-floor-select')?.value || '';
+      const filterUnitType = document.getElementById('filter-unit-type-select')?.value || '';
+      const filterEquip = document.getElementById('filter-equipment-select')?.value || '';
+      const filterPhoto = document.getElementById('filter-photo-select')?.value || '';
+
+      list = list.filter(r => {
+        if (filterPark && r.park !== filterPark) return false;
+        if (filterArea && r.area !== filterArea) return false;
+        if (filterFacility && r.facility !== filterFacility) return false;
+        if (filterFloor && (r.floor || '') !== filterFloor) return false;
+
+        if (filterUnitType) {
+          const subs = r.pacSubtypes || {};
+          const pac = r.pacCount || 0;
+          const hex = r.hexCount || 0;
+          const fcu = r.fcuCount || 0;
+          const other = (r.otherEquipment || '').trim();
+          if (filterUnitType === 'cassette' && !(subs.cassette > 0)) return false;
+          if (filterUnitType === 'floor' && !(subs.floor > 0)) return false;
+          if (filterUnitType === 'ceiling' && !(subs.ceiling > 0)) return false;
+          if (filterUnitType === 'wall' && !(subs.wall > 0)) return false;
+          if (filterUnitType === 'pac_any' && !(pac > 0)) return false;
+          if (filterUnitType === 'hex' && !(hex > 0)) return false;
+          if (filterUnitType === 'fcu' && !(fcu > 0)) return false;
+          if (filterUnitType === 'other' && !other) return false;
+        }
+
+        if (filterEquip) {
+          const combined = `${r.equipment || ''} ${r.access || ''}`;
+          if (!combined.includes(filterEquip)) return false;
+        }
+
+        if (filterPhoto) {
+          const p = this.normalizePhotos(r);
+          const totalP = p.entrance.length + p.room.length + p.equipment.length;
+          if (filterPhoto === 'has_photo' && totalP === 0) return false;
+          if (filterPhoto === 'missing_photo' && (p.entrance.length > 0 && p.room.length > 0)) return false;
+        }
+
+        if (searchWord) {
+          const targetStr = `${r.resort} ${r.park} ${r.area} ${r.facility} ${r.floor || ''} ${r.room} ${r.equipSummary || ''} ${r.access || ''} ${r.equipment || ''} ${r.filterSpec || ''} ${r.machineNo || ''} ${r.notes || ''}`.toLowerCase();
+          if (!targetStr.includes(searchWord)) return false;
+        }
+        return true;
+      });
+    }
+
+    // 並べ替え（ソート）
+    const sortOrder = document.getElementById('sort-order-select')?.value || 'hierarchy';
+    const parkRank = { TDS: 1, TDL: 2, HOTEL: 3, OTHER: 4 };
+
+    list.sort((a, b) => {
+      if (sortOrder === 'date-desc') {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      }
+      if (sortOrder === 'date-asc') {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      }
+      if (sortOrder === 'facility-asc') {
+        return (a.facility || '').localeCompare(b.facility || '', 'ja') ||
+               (this.parseFloorOrder(a.floor) - this.parseFloorOrder(b.floor)) ||
+               (a.room || '').localeCompare(b.room || '', 'ja');
+      }
+      if (sortOrder === 'floor-asc') {
+        return (this.parseFloorOrder(a.floor) - this.parseFloorOrder(b.floor)) ||
+               (a.facility || '').localeCompare(b.facility || '', 'ja') ||
+               (a.room || '').localeCompare(b.room || '', 'ja');
+      }
+      if (sortOrder === 'units-desc') {
+        const ua = a.totalUnits || ((a.pacCount || 0) + (a.hexCount || 0) + (a.fcuCount || 0));
+        const ub = b.totalUnits || ((b.pacCount || 0) + (b.hexCount || 0) + (b.fcuCount || 0));
+        return ub - ua;
+      }
+      if (sortOrder === 'units-asc') {
+        const ua = a.totalUnits || ((a.pacCount || 0) + (a.hexCount || 0) + (a.fcuCount || 0));
+        const ub = b.totalUnits || ((b.pacCount || 0) + (b.hexCount || 0) + (b.fcuCount || 0));
+        return ua - ub;
+      }
+      if (sortOrder === 'ladder-desc') {
+        return (this.parseMaxLadder(b.equipment) - this.parseMaxLadder(a.equipment)) ||
+               (a.facility || '').localeCompare(b.facility || '', 'ja');
+      }
+      // デフォルト: 'hierarchy' (パーク ＞ エリア ＞ 施設 ＞ 階層 ＞ 部屋)
+      const pa = parkRank[a.park] || 9;
+      const pb = parkRank[b.park] || 9;
+      if (pa !== pb) return pa - pb;
+      const areaCmp = (a.area || '').localeCompare(b.area || '', 'ja');
+      if (areaCmp !== 0) return areaCmp;
+      const facCmp = (a.facility || '').localeCompare(b.facility || '', 'ja');
+      if (facCmp !== 0) return facCmp;
+      const flCmp = this.parseFloorOrder(a.floor) - this.parseFloorOrder(b.floor);
+      if (flCmp !== 0) return flCmp;
+      return (a.room || '').localeCompare(b.room || '', 'ja');
+    });
+
+    return list;
+  }
+
+  // 絞り込み結果のリアルタイム集計バーを更新
+  renderFilteredStatsBar(filtered) {
+    const bar = document.getElementById('filtered-stats-bar');
+    if (!bar) return;
+
+    if (this.records.length === 0) {
+      bar.innerHTML = '<span class="text-xs text-muted">データを登録すると、ここに機種別・部屋数のリアルタイム集計が表示されます</span>';
+      return;
+    }
+
+    let totalUnits = 0;
+    let cas = 0, flr = 0, ceil = 0, wall = 0, pacOth = 0, hex = 0, fcu = 0;
+    const facSet = new Set();
+
+    filtered.forEach(r => {
+      if (r.facility) facSet.add(`${r.park}:${r.facility}`);
+      const subs = r.pacSubtypes || {};
+      const cCas = subs.cassette || 0;
+      const cFlr = subs.floor || 0;
+      const cCeil = subs.ceiling || 0;
+      const cWall = subs.wall || 0;
+      const cOth = subs.other || (r.pacCount && !cCas && !cFlr && !cCeil && !cWall ? r.pacCount : 0);
+      cas += cCas;
+      flr += cFlr;
+      ceil += cCeil;
+      wall += cWall;
+      pacOth += cOth;
+      hex += (r.hexCount || 0);
+      fcu += (r.fcuCount || 0);
+      totalUnits += (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0)));
+    });
+
+    const pills = [
+      `<span class="stat-pill cyan">🏰 施設: ${facSet.size}ヶ所</span>`,
+      `<span class="stat-pill cyan">🚪 部屋: ${filtered.length}室</span>`,
+      `<span class="stat-pill highlight">❄️ 空調機総数: ${totalUnits}台</span>`
+    ];
+    if (cas > 0) pills.push(`<span class="stat-pill">天カセ: ${cas}台</span>`);
+    if (flr > 0) pills.push(`<span class="stat-pill">床置: ${flr}台</span>`);
+    if (ceil > 0) pills.push(`<span class="stat-pill">天吊: ${ceil}台</span>`);
+    if (wall > 0) pills.push(`<span class="stat-pill">壁掛: ${wall}台</span>`);
+    if (pacOth > 0) pills.push(`<span class="stat-pill">他PAC: ${pacOth}台</span>`);
+    if (hex > 0) pills.push(`<span class="stat-pill">🔄 全熱: ${hex}台</span>`);
+    if (fcu > 0) pills.push(`<span class="stat-pill">💨 FCU: ${fcu}台</span>`);
+
+    bar.innerHTML = pills.join('');
+  }
+
+  // 一覧レンダリング（6種のまとめ方に対応）
   renderRecordsList() {
     const container = document.getElementById('records-container');
     const emptyState = document.getElementById('empty-state');
     const countText = document.getElementById('filtered-count-text');
 
-    const searchWord = (document.getElementById('list-search-input').value || '').trim().toLowerCase();
-    const filterPark = document.getElementById('filter-park-select').value;
-    const filterEquip = document.getElementById('filter-equipment-select').value;
+    const filtered = this.getFilteredAndSortedRecords(false);
+    this.renderFilteredStatsBar(filtered);
 
-    const filtered = this.records.filter(r => {
-      if (filterPark && r.park !== filterPark) return false;
-      if (filterEquip && !(r.equipment || '').includes(filterEquip)) return false;
-      if (searchWord) {
-        const targetStr = `${r.resort} ${r.park} ${r.area} ${r.facility} ${r.room} ${r.equipSummary || ''} ${r.access} ${r.equipment} ${r.machineNo} ${r.notes}`.toLowerCase();
-        if (!targetStr.includes(searchWord)) return false;
-      }
-      return true;
-    });
-
-    countText.textContent = `全 ${this.records.length} 件中 ${filtered.length} 件表示`;
+    const viewNames = {
+      card: '部屋カード一覧',
+      tree: '階層ツリーまとめ',
+      equip: '空調機種別集計',
+      gear: '必要機材・アクセス別',
+      spec: 'フィルター仕様別',
+      table: '表プレビュー'
+    };
+    const modeLabel = viewNames[this.listViewMode] || '一覧';
+    countText.textContent = `【${modeLabel}】全 ${this.records.length} 件中 ${filtered.length} 件表示`;
 
     if (this.records.length === 0) {
       container.innerHTML = '';
@@ -1250,103 +1868,405 @@ class HVACApp {
     emptyState.classList.add('hidden');
 
     if (filtered.length === 0) {
-      container.innerHTML = '<div class="empty-state"><h3>条件に一致するデータがありません</h3></div>';
+      container.innerHTML = '<div class="empty-state"><h3>条件に一致するデータがありません</h3><p class="text-xs text-muted mt-1">上の「🔄 条件リセット」ボタンを押すと全件表示に戻ります。</p></div>';
       return;
     }
 
-    container.innerHTML = filtered.map(r => {
-      const parkClass = (r.park || '').toLowerCase();
-      const pSlots = this.normalizePhotos(r);
+    if (this.listViewMode === 'tree') {
+      container.innerHTML = this.renderTreeGroupedView(filtered);
+      return;
+    }
+    if (this.listViewMode === 'equip') {
+      container.innerHTML = this.renderEquipmentGroupedView(filtered);
+      return;
+    }
+    if (this.listViewMode === 'gear') {
+      container.innerHTML = this.renderGearGroupedView(filtered);
+      return;
+    }
+    if (this.listViewMode === 'spec') {
+      container.innerHTML = this.renderSpecGroupedView(filtered);
+      return;
+    }
+    if (this.listViewMode === 'table') {
+      container.innerHTML = this.renderInlineTableView(filtered);
+      return;
+    }
 
-      const allPhotos = [
-        ...pSlots.entrance.map(p => ({ ...p, badge: '🚪 入口' })),
-        ...pSlots.room.map(p => ({ ...p, badge: '🏢 部屋' })),
-        ...pSlots.equipment.map(p => ({ ...p, badge: '⚙️ 機器' }))
-      ];
+    // 標準: 'card' (部屋カード表示)
+    container.innerHTML = filtered.map(r => this.renderSingleRecordCard(r)).join('');
+  }
 
-      const photosHtml = allPhotos.length > 0 ? `
-        <div class="card-photos-row">
-          ${allPhotos.map(p => `
-            <div class="card-thumb">
-              <img src="${p.dataUrl}" alt="${p.label}" onclick="app.showModalPhoto('${p.dataUrl}', '${r.facility} - ${r.room} (${p.badge})')">
-              <span class="photo-type-tag">${p.badge}</span>
+  renderSingleRecordCard(r) {
+    const parkClass = (r.park || '').toLowerCase();
+    const pSlots = this.normalizePhotos(r);
+
+    const allPhotos = [
+      ...pSlots.entrance.map(p => ({ ...p, badge: '🚪 入口' })),
+      ...pSlots.room.map(p => ({ ...p, badge: '🏢 部屋' })),
+      ...pSlots.equipment.map(p => ({ ...p, badge: '⚙️ 機器' }))
+    ];
+
+    const photosHtml = allPhotos.length > 0 ? `
+      <div class="card-photos-row">
+        ${allPhotos.map(p => `
+          <div class="card-thumb">
+            <img src="${p.dataUrl}" alt="${p.label}" onclick="app.showModalPhoto('${p.dataUrl}', '${this.escapeHtml(r.facility)} - ${this.escapeHtml(r.room)} (${p.badge})')">
+            <span class="photo-type-tag">${p.badge}</span>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    const unitBadges = this.buildUnitBadgesHtml(r);
+    const equipUnitsHtml = unitBadges.length > 0 ? `
+      <div class="info-row">
+        <span class="info-label">❄️ 空調機器:</span>
+        <div class="info-value equip-badge-group">${unitBadges.join('')}</div>
+      </div>
+    ` : '';
+
+    return `
+      <div class="record-card">
+        <div class="card-header-path">
+          <div class="path-tag-row">
+            <span class="park-tag ${parkClass}">${r.park}</span>
+            <span class="area-tag">${this.escapeHtml(r.area || 'エリア未設定')}</span>
+          </div>
+          <div class="facility-title">${this.escapeHtml(r.facility || '施設未設定')}</div>
+          <div class="room-highlight">📍 ${r.floor ? `${this.escapeHtml(r.floor)} / ` : ''}${this.escapeHtml(r.room)}</div>
+        </div>
+
+        <div class="info-block">
+          ${equipUnitsHtml}
+          ${r.equipment ? `<div class="info-row"><span class="info-label">🧰 必要なもの:</span><span class="info-value"><span class="badge-equipment">${this.escapeHtml(r.equipment)}</span></span></div>` : ''}
+          ${r.access ? `<div class="info-row"><span class="info-label">🚪 アクセス:</span><span class="info-value">${this.escapeHtml(r.access)}</span></div>` : ''}
+          ${(r.machineNo || r.filterSpec) ? `<div class="info-row"><span class="info-label">⚙️ 仕様/機番:</span><span class="info-value">${this.escapeHtml(r.filterSpec || '')} ${r.machineNo ? `(${this.escapeHtml(r.machineNo)})` : ''}</span></div>` : ''}
+          ${r.notes ? `<div class="info-row"><span class="info-label">📝 備考:</span><span class="info-value text-muted">${this.escapeHtml(r.notes)}</span></div>` : ''}
+        </div>
+
+        ${photosHtml}
+
+        <div class="card-actions">
+          <button type="button" class="btn btn-sub btn-sm" onclick="app.duplicateRecord('${r.id}')">📑 複製</button>
+          <button type="button" class="btn btn-sub btn-sm" onclick="app.editRecord('${r.id}')">✏️ 編集</button>
+          <button type="button" class="btn btn-sub btn-sm" style="color:#ef4444;" onclick="app.confirmDelete('${r.id}')">🗑️ 削除</button>
+        </div>
+      </div>
+    `;
+  }
+
+  buildUnitBadgesHtml(r) {
+    const pac = r.pacCount || 0;
+    const subs = r.pacSubtypes || {};
+    const hex = r.hexCount || 0;
+    const fcu = r.fcuCount || 0;
+    const total = r.totalUnits || (pac + hex + fcu);
+    const other = r.otherEquipment || '';
+
+    const unitBadges = [];
+    if (total > 0) {
+      unitBadges.push(`<span class="badge-unit badge-total-num">計: ${total}台</span>`);
+    }
+    let hasPacSub = false;
+    if (subs.cassette > 0) { unitBadges.push(`<span class="badge-unit badge-pac-cas">❄️ 天カセ:${subs.cassette}</span>`); hasPacSub = true; }
+    if (subs.floor > 0) { unitBadges.push(`<span class="badge-unit badge-pac-floor">❄️ 床置:${subs.floor}</span>`); hasPacSub = true; }
+    if (subs.ceiling > 0) { unitBadges.push(`<span class="badge-unit badge-pac-ceil">❄️ 天吊:${subs.ceiling}</span>`); hasPacSub = true; }
+    if (subs.wall > 0) { unitBadges.push(`<span class="badge-unit badge-pac-wall">❄️ 壁掛:${subs.wall}</span>`); hasPacSub = true; }
+    if (subs.other > 0) { unitBadges.push(`<span class="badge-unit badge-pac-other">❄️ 他PAC:${subs.other}</span>`); hasPacSub = true; }
+    if (!hasPacSub && pac > 0) {
+      unitBadges.push(`<span class="badge-unit badge-pac">❄️ PAC:${pac}</span>`);
+    }
+    if (hex > 0) unitBadges.push(`<span class="badge-unit badge-hex">🔄 全熱:${hex}</span>`);
+    if (fcu > 0) unitBadges.push(`<span class="badge-unit badge-fcu">💨 FCU:${fcu}</span>`);
+    if (other) unitBadges.push(`<span class="badge-unit">${this.escapeHtml(other)}</span>`);
+    return unitBadges;
+  }
+
+  // ビュー②: 🌳 階層ツリーまとめ (パーク ＞ エリア ＞ 施設 ＞ 階層)
+  renderTreeGroupedView(records) {
+    const facilityMap = new Map();
+    records.forEach(r => {
+      const key = `${r.park}__${r.area || '(エリア未設定)'}__${r.facility || '(施設未設定)'}`;
+      if (!facilityMap.has(key)) {
+        facilityMap.set(key, {
+          park: r.park,
+          area: r.area || '(エリア未設定)',
+          facility: r.facility || '(施設未設定)',
+          totalUnits: 0,
+          rooms: []
+        });
+      }
+      const g = facilityMap.get(key);
+      const u = r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0));
+      g.totalUnits += u;
+      g.rooms.push(r);
+    });
+
+    return Array.from(facilityMap.values()).map(g => {
+      const parkClass = (g.park || '').toLowerCase();
+      // 階層ごとにサブグループ化
+      const floorMap = new Map();
+      g.rooms.forEach(r => {
+        const fl = r.floor || '階層未設定';
+        if (!floorMap.has(fl)) floorMap.set(fl, []);
+        floorMap.get(fl).push(r);
+      });
+
+      const sortedFloors = Array.from(floorMap.entries()).sort((a, b) => this.parseFloorOrder(a[0]) - this.parseFloorOrder(b[0]));
+
+      const floorsHtml = sortedFloors.map(([floorName, rmList]) => {
+        const floorUnits = rmList.reduce((acc, r) => acc + (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0))), 0);
+        const roomsHtml = rmList.map(r => `
+          <div class="compact-room-row">
+            <div class="compact-room-main">
+              <span class="compact-room-name">📍 ${this.escapeHtml(r.room)}</span>
+              <span class="compact-room-sub">
+                ${r.equipment ? `🧰 ${this.escapeHtml(r.equipment)}` : ''}
+                ${r.access ? ` / 🚪 ${this.escapeHtml(r.access)}` : ''}
+                ${r.filterSpec ? ` / 📐 ${this.escapeHtml(r.filterSpec)}` : ''}
+              </span>
             </div>
-          `).join('')}
-        </div>
-      ` : '';
+            <div class="compact-room-right">
+              ${this.buildUnitBadgesHtml(r).join('')}
+              <button type="button" class="btn btn-sub btn-sm" onclick="app.editRecord('${r.id}')">✏️</button>
+              <button type="button" class="btn btn-sub btn-sm" onclick="app.duplicateRecord('${r.id}')">📑</button>
+            </div>
+          </div>
+        `).join('');
 
-      // 空調機器バッジ群
-      const pac = r.pacCount || 0;
-      const subs = r.pacSubtypes || {};
-      const hex = r.hexCount || 0;
-      const fcu = r.fcuCount || 0;
-      const total = r.totalUnits || (pac + hex + fcu);
-      const other = r.otherEquipment || '';
-
-      const unitBadges = [];
-      if (total > 0) {
-        unitBadges.push(`<span class="badge-unit badge-total-num">合計: ${total}台</span>`);
-      }
-
-      // PAC形式別バッジ
-      let hasPacSub = false;
-      if (subs.cassette > 0) { unitBadges.push(`<span class="badge-unit badge-pac-cas">❄️ 天カセ: ${subs.cassette}台</span>`); hasPacSub = true; }
-      if (subs.floor > 0) { unitBadges.push(`<span class="badge-unit badge-pac-floor">❄️ 床置き: ${subs.floor}台</span>`); hasPacSub = true; }
-      if (subs.ceiling > 0) { unitBadges.push(`<span class="badge-unit badge-pac-ceil">❄️ 天吊り: ${subs.ceiling}台</span>`); hasPacSub = true; }
-      if (subs.wall > 0) { unitBadges.push(`<span class="badge-unit badge-pac-wall">❄️ 壁掛け: ${subs.wall}台</span>`); hasPacSub = true; }
-      if (subs.other > 0) { unitBadges.push(`<span class="badge-unit badge-pac-other">❄️ 他PAC: ${subs.other}台</span>`); hasPacSub = true; }
-      if (!hasPacSub && pac > 0) {
-        unitBadges.push(`<span class="badge-unit badge-pac">❄️ PAC: ${pac}台</span>`);
-      }
-
-      if (hex > 0) unitBadges.push(`<span class="badge-unit badge-hex">🔄 全熱: ${hex}台</span>`);
-      if (fcu > 0) unitBadges.push(`<span class="badge-unit badge-fcu">💨 FCU: ${fcu}台</span>`);
-      if (other) unitBadges.push(`<span class="badge-unit badge-unit">${this.escapeHtml(other)}</span>`);
-
-      const equipUnitsHtml = unitBadges.length > 0 ? `
-        <div class="info-row">
-          <span class="info-label">❄️ 空調機器:</span>
-          <div class="info-value equip-badge-group">${unitBadges.join('')}</div>
-        </div>
-      ` : '';
+        return `
+          <div class="group-sub-floor">
+            <div class="group-sub-floor-title">
+              <span>🏢 ${this.escapeHtml(floorName)} （${rmList.length}室）</span>
+              <span>計 ${floorUnits}台</span>
+            </div>
+            ${roomsHtml}
+          </div>
+        `;
+      }).join('');
 
       return `
-        <div class="record-card">
-          <div class="card-header-path">
-            <div class="path-tag-row">
-              <span class="park-tag ${parkClass}">${r.park}</span>
-              <span class="area-tag">${this.escapeHtml(r.area)}</span>
+        <div class="group-section-card">
+          <div class="group-section-header">
+            <div class="group-section-title">
+              <span class="park-tag ${parkClass}">${g.park}</span>
+              <span>${this.escapeHtml(g.area)} ＞ <strong>${this.escapeHtml(g.facility)}</strong></span>
             </div>
-            <div class="facility-title">${this.escapeHtml(r.facility)}</div>
-            <div class="room-highlight">📍 ${r.floor ? `${this.escapeHtml(r.floor)} / ` : ''}${this.escapeHtml(r.room)}</div>
+            <div class="group-section-badges">
+              <span class="stat-pill cyan">全 ${g.rooms.length} 室</span>
+              <span class="stat-pill highlight">空調機 計 ${g.totalUnits} 台</span>
+            </div>
           </div>
-
-          <div class="info-block">
-            ${equipUnitsHtml}
-            ${r.equipment ? `<div class="info-row"><span class="info-label">🧰 必要なもの:</span><span class="info-value"><span class="badge-equipment">${this.escapeHtml(r.equipment)}</span></span></div>` : ''}
-            ${r.access ? `<div class="info-row"><span class="info-label">🚪 アクセス:</span><span class="info-value">${this.escapeHtml(r.access)}</span></div>` : ''}
-            ${(r.machineNo || r.filterSpec) ? `<div class="info-row"><span class="info-label">⚙️ 仕様/機番:</span><span class="info-value">${this.escapeHtml(r.filterSpec || '')} ${r.machineNo ? `(${this.escapeHtml(r.machineNo)})` : ''}</span></div>` : ''}
-            ${r.notes ? `<div class="info-row"><span class="info-label">📝 備考:</span><span class="info-value text-muted">${this.escapeHtml(r.notes)}</span></div>` : ''}
-          </div>
-
-          ${photosHtml}
-
-          <div class="card-actions">
-            <button type="button" class="btn btn-sub btn-sm" onclick="app.duplicateRecord('${r.id}')">📑 複製</button>
-            <button type="button" class="btn btn-sub btn-sm" onclick="app.editRecord('${r.id}')">✏️ 編集</button>
-            <button type="button" class="btn btn-sub btn-sm" style="color:#ef4444;" onclick="app.confirmDelete('${r.id}')">🗑️ 削除</button>
+          <div class="group-section-body">
+            ${floorsHtml}
           </div>
         </div>
       `;
     }).join('');
   }
 
-  // ================= 9. スプレッドシート連携（機器ごとに行分割出力） =================
-  getExpandedRows() {
+  // ビュー③: ❄️ 空調機種別集計まとめ
+  renderEquipmentGroupedView(records) {
+    const categories = [
+      { key: 'cassette', label: '❄️ パッケージ (天カセ)', badgeClass: 'badge-pac-cas', getter: r => r.pacSubtypes?.cassette || 0 },
+      { key: 'floor', label: '❄️ パッケージ (床置き)', badgeClass: 'badge-pac-floor', getter: r => r.pacSubtypes?.floor || 0 },
+      { key: 'ceiling', label: '❄️ パッケージ (天吊り)', badgeClass: 'badge-pac-ceil', getter: r => r.pacSubtypes?.ceiling || 0 },
+      { key: 'wall', label: '❄️ パッケージ (壁掛け)', badgeClass: 'badge-pac-wall', getter: r => r.pacSubtypes?.wall || 0 },
+      { key: 'pac_other', label: '❄️ パッケージ (その他)', badgeClass: 'badge-pac-other', getter: r => {
+        const s = r.pacSubtypes || {};
+        return s.other || (r.pacCount && !s.cassette && !s.floor && !s.ceiling && !s.wall ? r.pacCount : 0);
+      }},
+      { key: 'hex', label: '🔄 全熱交換器 (HEX)', badgeClass: 'badge-hex', getter: r => r.hexCount || 0 },
+      { key: 'fcu', label: '💨 ファンコイル (FCU)', badgeClass: 'badge-fcu', getter: r => r.fcuCount || 0 },
+      { key: 'other_eq', label: '⚙️ その他機器 (AHU・ファン等)', badgeClass: 'badge-pac-other', getter: r => (r.otherEquipment ? 1 : 0) }
+    ];
+
+    const blocks = categories.map(cat => {
+      const matched = [];
+      let sumUnits = 0;
+      records.forEach(r => {
+        const cnt = cat.getter(r);
+        if (cnt > 0) {
+          sumUnits += cnt;
+          matched.push({ r, cnt });
+        }
+      });
+      if (matched.length === 0) return '';
+
+      const rowsHtml = matched.map(({ r, cnt }) => `
+        <div class="compact-room-row">
+          <div class="compact-room-main">
+            <span class="compact-room-name">[${r.park}] ${this.escapeHtml(r.facility)} ＞ ${this.escapeHtml(r.floor || '-')} ＞ 📍 ${this.escapeHtml(r.room)}</span>
+            <span class="compact-room-sub">
+              ${r.filterSpec ? `📐 仕様: ${this.escapeHtml(r.filterSpec)}` : '仕様未記入'}
+              ${r.machineNo ? ` (${this.escapeHtml(r.machineNo)})` : ''}
+              ${r.equipment ? ` / 🧰 ${this.escapeHtml(r.equipment)}` : ''}
+            </span>
+          </div>
+          <div class="compact-room-right">
+            <span class="badge-unit ${cat.badgeClass}">${cat.key === 'other_eq' ? this.escapeHtml(r.otherEquipment) : `${cnt}台`}</span>
+            <button type="button" class="btn btn-sub btn-sm" onclick="app.editRecord('${r.id}')">✏️</button>
+          </div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="group-section-card">
+          <div class="group-section-header">
+            <div class="group-section-title">${cat.label}</div>
+            <div class="group-section-badges">
+              <span class="stat-pill cyan">設置: ${matched.length} 室</span>
+              <span class="stat-pill highlight">合計: ${sumUnits} ${cat.key === 'other_eq' ? '件' : '台'}</span>
+            </div>
+          </div>
+          <div class="group-section-body">${rowsHtml}</div>
+        </div>
+      `;
+    }).filter(Boolean);
+
+    return blocks.length > 0 ? blocks.join('') : '<div class="empty-state"><h3>空調機台数が登録されている部屋がありません</h3></div>';
+  }
+
+  // ビュー④: 🪜 必要機材・アクセスルート別まとめ
+  renderGearGroupedView(records) {
+    const gearMap = new Map();
+    const knownTags = ['12尺', '10尺', '9尺', '8尺', '7尺', '6尺', '5尺', '4尺', '3尺', '脚立不要', 'フィルター', 'バキューム', '養生', 'ハーネス', 'ヘッドライト', 'バックステージ', 'オンステージ', '屋上', '鍵'];
+
+    records.forEach(r => {
+      const text = `${r.equipment || ''} ${r.access || ''}`.trim();
+      const matchedTags = knownTags.filter(t => text.includes(t));
+      if (matchedTags.length === 0) {
+        const fallback = (r.equipment || '').trim() || '機材・アクセス未記入';
+        if (!gearMap.has(fallback)) gearMap.set(fallback, []);
+        gearMap.get(fallback).push(r);
+      } else {
+        matchedTags.forEach(tag => {
+          if (!gearMap.has(tag)) gearMap.set(tag, []);
+          gearMap.get(tag).push(r);
+        });
+      }
+    });
+
+    return Array.from(gearMap.entries()).map(([tag, rmList]) => {
+      const totalU = rmList.reduce((acc, r) => acc + (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0))), 0);
+      const rowsHtml = rmList.map(r => `
+        <div class="compact-room-row">
+          <div class="compact-room-main">
+            <span class="compact-room-name">[${r.park}] ${this.escapeHtml(r.facility)} (${this.escapeHtml(r.floor || '-')}) 📍 ${this.escapeHtml(r.room)}</span>
+            <span class="compact-room-sub">🧰 ${this.escapeHtml(r.equipment || '-')} / 🚪 ${this.escapeHtml(r.access || '-')}</span>
+          </div>
+          <div class="compact-room-right">
+            ${this.buildUnitBadgesHtml(r).join('')}
+            <button type="button" class="btn btn-sub btn-sm" onclick="app.editRecord('${r.id}')">✏️</button>
+          </div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="group-section-card">
+          <div class="group-section-header">
+            <div class="group-section-title">🪜 【${this.escapeHtml(tag)}】が必要な部屋</div>
+            <div class="group-section-badges">
+              <span class="stat-pill cyan">対象: ${rmList.length} 室</span>
+              <span class="stat-pill highlight">機器計: ${totalU} 台</span>
+            </div>
+          </div>
+          <div class="group-section-body">${rowsHtml}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ビュー⑤: 📐 フィルター仕様・機番別まとめ
+  renderSpecGroupedView(records) {
+    const specMap = new Map();
+    records.forEach(r => {
+      const key = (r.filterSpec || '').trim() || '(フィルター仕様・寸法 未記入)';
+      if (!specMap.has(key)) specMap.set(key, []);
+      specMap.get(key).push(r);
+    });
+
+    return Array.from(specMap.entries()).map(([spec, rmList]) => {
+      const totalU = rmList.reduce((acc, r) => acc + (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0))), 0);
+      const rowsHtml = rmList.map(r => `
+        <div class="compact-room-row">
+          <div class="compact-room-main">
+            <span class="compact-room-name">[${r.park}] ${this.escapeHtml(r.facility)} (${this.escapeHtml(r.floor || '-')}) 📍 ${this.escapeHtml(r.room)}</span>
+            <span class="compact-room-sub">⚙️ 機番: ${this.escapeHtml(r.machineNo || '-')} / ❄️ ${this.escapeHtml(r.equipSummary || '-')}</span>
+          </div>
+          <div class="compact-room-right">
+            ${this.buildUnitBadgesHtml(r).join('')}
+            <button type="button" class="btn btn-sub btn-sm" onclick="app.editRecord('${r.id}')">✏️</button>
+          </div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="group-section-card">
+          <div class="group-section-header">
+            <div class="group-section-title">📐 フィルター仕様: ${this.escapeHtml(spec)}</div>
+            <div class="group-section-badges">
+              <span class="stat-pill cyan">該当: ${rmList.length} 室</span>
+              <span class="stat-pill highlight">対象機器: ${totalU} 台</span>
+            </div>
+          </div>
+          <div class="group-section-body">${rowsHtml}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ビュー⑥: 📊 一覧タブ内でのスプレッドシート表プレビュー
+  renderInlineTableView(records) {
+    const rows = this.getExpandedRows(records);
+    const trs = rows.map(r => `
+      <tr>
+        <td>${r.no}</td>
+        <td><strong>${r.park}</strong></td>
+        <td>${this.escapeHtml(r.area)}</td>
+        <td><strong>${this.escapeHtml(r.facility)}</strong></td>
+        <td style="text-align:center;">${this.escapeHtml(r.floor || '-')}</td>
+        <td><strong style="color:#38bdf8;">${this.escapeHtml(r.room)}</strong></td>
+        <td><strong>${this.escapeHtml(r.equipType)}</strong></td>
+        <td style="text-align:center; color:#fbbf24; font-weight:700;">${this.escapeHtml(r.equipCount)}</td>
+        <td>${this.escapeHtml(r.equipment || '-')}</td>
+        <td>${this.escapeHtml(r.access || '-')}</td>
+        <td>${this.escapeHtml(r.filterSpec || '-')}</td>
+        <td>${this.escapeHtml(r.machineNo || '-')}</td>
+        <td>${this.escapeHtml(r.notes || '')}</td>
+      </tr>
+    `).join('');
+
+    return `
+      <div class="card">
+        <div class="table-scroll-container">
+          <table class="spreadsheet-table">
+            <thead>
+              <tr>
+                <th>No</th><th>パーク</th><th>エリア</th><th>施設</th><th>階層</th><th>部屋名</th>
+                <th>空調機種別</th><th>台数</th><th>必要なもの</th><th>アクセス</th><th>フィルター仕様</th><th>機番</th><th>備考</th>
+              </tr>
+            </thead>
+            <tbody>${trs}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // ================= 9. スプレッドシート連携（4種のまとめ方シート出力＆フィルタ連動） =================
+  getTargetRecordsForExport() {
+    const useFilter = document.getElementById('export-use-filter-toggle')?.checked ?? true;
+    return this.getFilteredAndSortedRecords(!useFilter);
+  }
+
+  getExpandedRows(sourceRecords = null) {
+    const targetList = sourceRecords || this.getTargetRecordsForExport();
     const expanded = [];
     let no = 1;
 
-    this.records.forEach(r => {
+    targetList.forEach(r => {
       const p = this.normalizePhotos(r);
       const pac = r.pacCount || 0;
       const hex = r.hexCount || 0;
@@ -1362,22 +2282,22 @@ class HVACApp {
       const cOth = subs.other || 0;
 
       let pacHandled = false;
-      if (cCas > 0) { items.push({ type: 'パッケージ (天カセ)', count: `${cCas}台` }); pacHandled = true; }
-      if (cFloor > 0) { items.push({ type: 'パッケージ (床置き)', count: `${cFloor}台` }); pacHandled = true; }
-      if (cCeil > 0) { items.push({ type: 'パッケージ (天吊り)', count: `${cCeil}台` }); pacHandled = true; }
-      if (cWall > 0) { items.push({ type: 'パッケージ (壁掛け)', count: `${cWall}台` }); pacHandled = true; }
-      if (cOth > 0) { items.push({ type: 'パッケージ (その他)', count: `${cOth}台` }); pacHandled = true; }
+      if (cCas > 0) { items.push({ type: 'パッケージ (天カセ)', count: `${cCas}台`, num: cCas }); pacHandled = true; }
+      if (cFloor > 0) { items.push({ type: 'パッケージ (床置き)', count: `${cFloor}台`, num: cFloor }); pacHandled = true; }
+      if (cCeil > 0) { items.push({ type: 'パッケージ (天吊り)', count: `${cCeil}台`, num: cCeil }); pacHandled = true; }
+      if (cWall > 0) { items.push({ type: 'パッケージ (壁掛け)', count: `${cWall}台`, num: cWall }); pacHandled = true; }
+      if (cOth > 0) { items.push({ type: 'パッケージ (その他)', count: `${cOth}台`, num: cOth }); pacHandled = true; }
 
       if (!pacHandled && pac > 0) {
-        items.push({ type: 'パッケージ (PAC)', count: `${pac}台` });
+        items.push({ type: 'パッケージ (PAC)', count: `${pac}台`, num: pac });
       }
 
-      if (hex > 0) items.push({ type: '全熱交換器 (HEX)', count: `${hex}台` });
-      if (fcu > 0) items.push({ type: 'ファンコイル (FCU)', count: `${fcu}台` });
-      if (other) items.push({ type: 'その他機器', count: other });
+      if (hex > 0) items.push({ type: '全熱交換器 (HEX)', count: `${hex}台`, num: hex });
+      if (fcu > 0) items.push({ type: 'ファンコイル (FCU)', count: `${fcu}台`, num: fcu });
+      if (other) items.push({ type: 'その他機器', count: other, num: 1 });
 
       if (items.length === 0) {
-        items.push({ type: '空調機未登録', count: '-' });
+        items.push({ type: '空調機未登録', count: '-', num: 0 });
       }
 
       items.forEach((item) => {
@@ -1407,94 +2327,212 @@ class HVACApp {
     return expanded;
   }
 
-  renderSpreadsheetPreview() {
-    const tbody = document.getElementById('spreadsheet-preview-body');
-    const countEl = document.getElementById('preview-row-count');
-    const rows = this.getExpandedRows();
-    countEl.textContent = rows.length;
+  // 4種類のシート形式（①機器別詳細 / ②部屋別1行まとめ / ③施設・階層別集計 / ④機種・仕様別集計）のデータ生成
+  buildSheetDataset(mode, sourceRecords = null) {
+    const records = sourceRecords || this.getTargetRecordsForExport();
 
-    if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="18" style="text-align:center; padding:20px; color:#94a3b8;">データがありません</td></tr>';
+    // ① 機器別詳細リスト（18列・行分割）
+    if (mode === 'expanded') {
+      const exp = this.getExpandedRows(records);
+      const headers = [
+        'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
+        '空調機種別', '台数', '作業に必要なもの', 'アクセス方法',
+        '建物入口写真', '部屋写真', '機器写真',
+        'フィルター仕様', '機番・系統', '特記事項', '階層フルパス', '登録日時'
+      ];
+      const rows = exp.map(r => [
+        r.no, r.park, r.area, r.facility, r.floor || '-', r.room,
+        r.equipType, r.equipCount, r.equipment || '-', r.access || '-',
+        r.entrancePhotos.length > 0 ? `あり(${r.entrancePhotos.length}枚)` : 'なし',
+        r.roomPhotos.length > 0 ? `あり(${r.roomPhotos.length}枚)` : 'なし',
+        r.equipPhotos.length > 0 ? `あり(${r.equipPhotos.length}枚)` : 'なし',
+        r.filterSpec || '-', r.machineNo || '-', r.notes || '',
+        r.fullPath, new Date(r.createdAt).toLocaleString('ja-JP')
+      ]);
+      const colWidths = [
+        { wch: 5 }, { wch: 8 }, { wch: 20 }, { wch: 24 }, { wch: 8 }, { wch: 18 },
+        { wch: 20 }, { wch: 9 }, { wch: 28 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+        { wch: 20 }, { wch: 14 }, { wch: 24 }, { wch: 42 }, { wch: 18 }
+      ];
+      return { sheetName: '①機器別詳細リスト', title: '📋 ① 機器別詳細リスト (18列)', headers, rows, colWidths };
+    }
+
+    // ② 部屋別まとめリスト（1部屋1行・機種別台数横並び）
+    if (mode === 'room_summary') {
+      const headers = [
+        'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
+        '合計台数', '天カセ', '床置き', '天吊り', '壁掛け', '他PAC', '全熱(HEX)', 'FCU', 'その他機器',
+        '作業に必要なもの', 'アクセス方法', 'フィルター仕様', '機番・系統', '特記事項'
+      ];
+      const rows = records.map((r, idx) => {
+        const s = r.pacSubtypes || {};
+        const cCas = s.cassette || 0;
+        const cFlr = s.floor || 0;
+        const cCeil = s.ceiling || 0;
+        const cWall = s.wall || 0;
+        const cOth = s.other || (r.pacCount && !cCas && !cFlr && !cCeil && !cWall ? r.pacCount : 0);
+        const hex = r.hexCount || 0;
+        const fcu = r.fcuCount || 0;
+        const tot = r.totalUnits || ((r.pacCount || 0) + hex + fcu);
+        return [
+          idx + 1, r.park, r.area, r.facility, r.floor || '-', r.room,
+          `${tot}台`, cCas || '-', cFlr || '-', cCeil || '-', cWall || '-', cOth || '-', hex || '-', fcu || '-', r.otherEquipment || '-',
+          r.equipment || '-', r.access || '-', r.filterSpec || '-', r.machineNo || '-', r.notes || ''
+        ];
+      });
+      const colWidths = [
+        { wch: 5 }, { wch: 8 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 18 },
+        { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 16 },
+        { wch: 26 }, { wch: 26 }, { wch: 18 }, { wch: 14 }, { wch: 22 }
+      ];
+      return { sheetName: '②部屋別まとめリスト', title: '🏢 ② 部屋別まとめリスト (1部屋1行)', headers, rows, colWidths };
+    }
+
+    // ③ 施設・階層別 集計表
+    if (mode === 'facility_summary') {
+      const headers = [
+        'No', 'パーク', 'エリア', '施設/アトラクション', '階層',
+        '登録部屋数', '空調機合計', '天カセ計', '床置き計', '天吊り計', '壁掛け計', '全熱(HEX)計', 'FCU計',
+        '対象部屋一覧', '必要機材まとめ'
+      ];
+      const map = new Map();
+      records.forEach(r => {
+        const key = `${r.park}__${r.area}__${r.facility}__${r.floor || '-'}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            park: r.park, area: r.area, facility: r.facility, floor: r.floor || '-',
+            roomCount: 0, total: 0, cas: 0, flr: 0, ceil: 0, wall: 0, hex: 0, fcu: 0,
+            rooms: [], gears: new Set()
+          });
+        }
+        const g = map.get(key);
+        const s = r.pacSubtypes || {};
+        g.roomCount += 1;
+        g.cas += (s.cassette || 0);
+        g.flr += (s.floor || 0);
+        g.ceil += (s.ceiling || 0);
+        g.wall += (s.wall || 0);
+        g.hex += (r.hexCount || 0);
+        g.fcu += (r.fcuCount || 0);
+        g.total += (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0)));
+        g.rooms.push(r.room);
+        if (r.equipment) g.gears.add(r.equipment);
+      });
+
+      const rows = Array.from(map.values()).map((g, idx) => [
+        idx + 1, g.park, g.area, g.facility, g.floor,
+        `${g.roomCount}室`, `${g.total}台`,
+        g.cas || '-', g.flr || '-', g.ceil || '-', g.wall || '-', g.hex || '-', g.fcu || '-',
+        g.rooms.join(', '), Array.from(g.gears).join(' / ') || '-'
+      ]);
+      const colWidths = [
+        { wch: 5 }, { wch: 8 }, { wch: 18 }, { wch: 24 }, { wch: 8 },
+        { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 11 }, { wch: 9 },
+        { wch: 30 }, { wch: 28 }
+      ];
+      return { sheetName: '③施設・階層別集計', title: '🏰 ③ 施設・階層別 集計表', headers, rows, colWidths };
+    }
+
+    // ④ 空調機種・フィルター仕様別 集計表
+    const headers = [
+      'No', '空調機種区分', 'フィルター仕様・寸法', '該当部屋数', '合計台数', '設置施設・部屋一覧', '主な必要機材'
+    ];
+    const expRows = this.getExpandedRows(records);
+    const specGroupMap = new Map();
+    expRows.forEach(r => {
+      const key = `${r.equipType}__${r.filterSpec || '仕様未記入'}`;
+      if (!specGroupMap.has(key)) {
+        specGroupMap.set(key, {
+          equipType: r.equipType,
+          filterSpec: r.filterSpec || '仕様未記入',
+          roomCount: 0,
+          totalUnits: 0,
+          locations: [],
+          gears: new Set()
+        });
+      }
+      const g = specGroupMap.get(key);
+      g.roomCount += 1;
+      const numMatch = String(r.equipCount).match(/(\d+)/);
+      g.totalUnits += numMatch ? parseInt(numMatch[1], 10) : 1;
+      g.locations.push(`${r.facility}(${r.floor || '-'}:${r.room})`);
+      if (r.equipment) g.gears.add(r.equipment);
+    });
+
+    const rows = Array.from(specGroupMap.values()).map((g, idx) => [
+      idx + 1, g.equipType, g.filterSpec, `${g.roomCount}室`, `${g.totalUnits}台`,
+      g.locations.join(', '), Array.from(g.gears).join(' / ') || '-'
+    ]);
+    const colWidths = [
+      { wch: 5 }, { wch: 22 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 42 }, { wch: 28 }
+    ];
+    return { sheetName: '④機種・仕様別集計', title: '❄️ ④ 機種・フィルター仕様別 集計表', headers, rows, colWidths };
+  }
+
+  renderSpreadsheetPreview() {
+    const thead = document.getElementById('spreadsheet-preview-head');
+    const tbody = document.getElementById('spreadsheet-preview-body');
+    const titleEl = document.getElementById('preview-table-title');
+    const filterBadge = document.getElementById('export-active-filter-badge');
+    if (!tbody || !thead) return;
+
+    const targetRecords = this.getTargetRecordsForExport();
+    const useFilter = document.getElementById('export-use-filter-toggle')?.checked ?? true;
+    if (filterBadge) {
+      if (useFilter && this.hasActiveFilters()) {
+        filterBadge.textContent = `🔍 絞り込み適用中 (${targetRecords.length}/${this.records.length}室)`;
+        filterBadge.className = 'badge badge-success';
+      } else {
+        filterBadge.textContent = `全件対象 (${this.records.length}室)`;
+        filterBadge.className = 'badge';
+      }
+    }
+
+    const dataset = this.buildSheetDataset(this.exportSheetMode, targetRecords);
+    if (titleEl) {
+      titleEl.innerHTML = `${dataset.title} (全 <span id="preview-row-count">${dataset.rows.length}</span> 行)`;
+    }
+
+    thead.innerHTML = `<tr>${dataset.headers.map(h => `<th>${this.escapeHtml(h)}</th>`).join('')}</tr>`;
+
+    if (dataset.rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${dataset.headers.length}" style="text-align:center; padding:20px; color:#94a3b8;">データがありません</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = rows.map((r) => {
-      let typeStyle = 'color:#f8fafc; font-weight:bold;';
-      if (r.equipType.includes('天カセ')) typeStyle = 'color:#38bdf8; font-weight:bold;';
-      else if (r.equipType.includes('床置き')) typeStyle = 'color:#22d3ee; font-weight:bold;';
-      else if (r.equipType.includes('天吊り')) typeStyle = 'color:#818cf8; font-weight:bold;';
-      else if (r.equipType.includes('壁掛け')) typeStyle = 'color:#60a5fa; font-weight:bold;';
-      else if (r.equipType.includes('PAC') || r.equipType.includes('パッケージ')) typeStyle = 'color:#38bdf8; font-weight:bold;';
-      else if (r.equipType.includes('全熱')) typeStyle = 'color:#34d399; font-weight:bold;';
-      else if (r.equipType.includes('FCU')) typeStyle = 'color:#c084fc; font-weight:bold;';
-
-      return `
-        <tr>
-          <td>${r.no}</td>
-          <td><strong>${r.park}</strong></td>
-          <td>${this.escapeHtml(r.area)}</td>
-          <td><strong>${this.escapeHtml(r.facility)}</strong></td>
-          <td style="text-align:center;">${this.escapeHtml(r.floor || '-')}</td>
-          <td><strong style="color:#f1f5f9;">${this.escapeHtml(r.room)}</strong></td>
-          <td><span style="${typeStyle}">● ${this.escapeHtml(r.equipType)}</span></td>
-          <td style="text-align:center; font-weight:bold; color:#fbbf24;">${this.escapeHtml(r.equipCount)}</td>
-          <td><strong style="color:#f59e0b;">${this.escapeHtml(r.equipment || '-')}</strong></td>
-          <td>${this.escapeHtml(r.access || '-')}</td>
-          <td>${r.entrancePhotos.length > 0 ? `あり(${r.entrancePhotos.length}枚)` : 'なし'}</td>
-          <td>${r.roomPhotos.length > 0 ? `あり(${r.roomPhotos.length}枚)` : 'なし'}</td>
-          <td>${r.equipPhotos.length > 0 ? `あり(${r.equipPhotos.length}枚)` : 'なし'}</td>
-          <td>${this.escapeHtml(r.filterSpec || '-')}</td>
-          <td>${this.escapeHtml(r.machineNo || '-')}</td>
-          <td>${this.escapeHtml(r.notes || '')}</td>
-          <td class="text-xs text-muted">${this.escapeHtml(r.fullPath)}</td>
-          <td class="text-xs text-muted">${new Date(r.createdAt).toLocaleString('ja-JP')}</td>
-        </tr>
-      `;
-    }).join('');
+    tbody.innerHTML = dataset.rows.map(row => `
+      <tr>
+        ${row.map((cell, idx) => {
+          const val = this.escapeHtml(String(cell ?? ''));
+          if (idx === 6 && this.exportSheetMode === 'expanded') {
+            return `<td style="color:#38bdf8; font-weight:700;">● ${val}</td>`;
+          }
+          if ((idx === 7 && this.exportSheetMode === 'expanded') || (idx === 6 && this.exportSheetMode === 'room_summary')) {
+            return `<td style="text-align:center; color:#fbbf24; font-weight:700;">${val}</td>`;
+          }
+          return `<td>${val}</td>`;
+        }).join('')}
+      </tr>
+    `).join('');
   }
 
-  // クリップボードTSVコピー（行分割）
+  // クリップボードTSVコピー（現在選択中のまとめ方・フィルタ結果をコピー）
   async copyToClipboardTSV() {
-    const rows = this.getExpandedRows();
-    if (rows.length === 0) {
+    const dataset = this.buildSheetDataset(this.exportSheetMode);
+    if (dataset.rows.length === 0) {
       this.showToast('コピーするデータがありません', true);
       return;
     }
 
-    const headers = [
-      'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
-      '空調機種別', '台数',
-      '作業に必要なもの', 'アクセス方法',
-      '建物入口写真', '部屋写真', '機器写真',
-      'フィルター仕様', '機番・系統', '特記事項', '階層フルパス', '登録日時'
-    ];
-
-    const dataRows = rows.map((r) => [
-      r.no,
-      r.park,
-      r.area,
-      r.facility,
-      r.floor || '',
-      r.room,
-      r.equipType,
-      r.equipCount,
-      (r.equipment || '').replace(/[\r\n]+/g, ' '),
-      (r.access || '').replace(/[\r\n]+/g, ' '),
-      r.entrancePhotos.length > 0 ? `あり(${r.entrancePhotos.length}枚)` : 'なし',
-      r.roomPhotos.length > 0 ? `あり(${r.roomPhotos.length}枚)` : 'なし',
-      r.equipPhotos.length > 0 ? `あり(${r.equipPhotos.length}枚)` : 'なし',
-      r.filterSpec || '',
-      r.machineNo || '',
-      (r.notes || '').replace(/[\r\n]+/g, ' '),
-      r.fullPath,
-      new Date(r.createdAt).toLocaleString('ja-JP')
-    ]);
-
-    const tsvContent = [headers.join('\t'), ...dataRows.map(r => r.join('\t'))].join('\n');
+    const cleanCell = (v) => String(v ?? '').replace(/[\r\n\t]+/g, ' ');
+    const tsvContent = [
+      dataset.headers.join('\t'),
+      ...dataset.rows.map(r => r.map(cleanCell).join('\t'))
+    ].join('\n');
 
     try {
       await navigator.clipboard.writeText(tsvContent);
-      this.showToast('📋 空調機種別ごとに行を分けてクリップボードにコピーしました！');
+      this.showToast(`📋 「${dataset.sheetName}」(${dataset.rows.length}行) をコピーしました！`);
     } catch (err) {
       this.fallbackCopyText(tsvContent);
     }
@@ -1517,66 +2555,38 @@ class HVACApp {
     document.body.removeChild(ta);
   }
 
-  // CSVダウンロード（行分割）
+  // CSVダウンロード（現在選択中のまとめ方・フィルタ結果）
   downloadCSV() {
-    const rows = this.getExpandedRows();
-    if (rows.length === 0) {
+    const dataset = this.buildSheetDataset(this.exportSheetMode);
+    if (dataset.rows.length === 0) {
       this.showToast('ダウンロードするデータがありません', true);
       return;
     }
 
-    const headers = [
-      'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
-      '空調機種別', '台数',
-      '作業に必要なもの', 'アクセス方法',
-      '建物入口写真', '部屋写真', '機器写真',
-      'フィルター仕様', '機番・系統', '特記事項', '階層フルパス', '登録日時'
-    ];
-
     const escapeCsv = (str) => {
-      const s = String(str || '');
+      const s = String(str ?? '');
       if (s.includes('"') || s.includes(',') || s.includes('\n')) {
         return '"' + s.replace(/"/g, '""') + '"';
       }
       return s;
     };
 
-    const dataRows = rows.map((r) => [
-      r.no,
-      escapeCsv(r.park),
-      escapeCsv(r.area),
-      escapeCsv(r.facility),
-      escapeCsv(r.floor),
-      escapeCsv(r.room),
-      escapeCsv(r.equipType),
-      escapeCsv(r.equipCount),
-      escapeCsv(r.equipment),
-      escapeCsv(r.access),
-      escapeCsv(r.entrancePhotos.length > 0 ? `あり(${r.entrancePhotos.length}枚)` : 'なし'),
-      escapeCsv(r.roomPhotos.length > 0 ? `あり(${r.roomPhotos.length}枚)` : 'なし'),
-      escapeCsv(r.equipPhotos.length > 0 ? `あり(${r.equipPhotos.length}枚)` : 'なし'),
-      escapeCsv(r.filterSpec),
-      escapeCsv(r.machineNo),
-      escapeCsv(r.notes),
-      escapeCsv(r.fullPath),
-      escapeCsv(new Date(r.createdAt).toLocaleString('ja-JP'))
-    ].join(','));
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...dataRows].join('\r\n');
+    const csvRows = dataset.rows.map(r => r.map(escapeCsv).join(','));
+    const csvContent = '\uFEFF' + [dataset.headers.map(escapeCsv).join(','), ...csvRows].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `TDR_空調設備現場リスト_${this.getFormattedDate()}.csv`;
+    link.download = `TDR_空調リスト_${dataset.sheetName}_${this.getFormattedDate()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    this.showToast('📥 CSVファイルを保存しました');
+    this.showToast(`📥 CSV (${dataset.sheetName}) を保存しました`);
   }
 
-  // Excelダウンロード（行分割）
+  // Excelダウンロード（全4種類のまとめ方シートを1つのExcelブックに一括収録！）
   downloadXLSX() {
-    const rows = this.getExpandedRows();
-    if (rows.length === 0) {
+    const targetRecords = this.getTargetRecordsForExport();
+    if (targetRecords.length === 0) {
       this.showToast('ダウンロードするデータがありません', true);
       return;
     }
@@ -1587,64 +2597,22 @@ class HVACApp {
       return;
     }
 
-    const headers = [
-      'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
-      '空調機種別', '台数',
-      '作業に必要なもの', 'アクセス方法',
-      '建物入口写真', '部屋写真', '機器写真',
-      'フィルター仕様', '機番・系統', '特記事項', '階層フルパス', '登録日時'
-    ];
-
-    const data = [
-      headers,
-      ...rows.map((r) => [
-        r.no,
-        r.park,
-        r.area,
-        r.facility,
-        r.floor || '',
-        r.room,
-        r.equipType,
-        r.equipCount,
-        r.equipment || '',
-        r.access || '',
-        r.entrancePhotos.length > 0 ? `あり(${r.entrancePhotos.length}枚)` : 'なし',
-        r.roomPhotos.length > 0 ? `あり(${r.roomPhotos.length}枚)` : 'なし',
-        r.equipPhotos.length > 0 ? `あり(${r.equipPhotos.length}枚)` : 'なし',
-        r.filterSpec || '',
-        r.machineNo || '',
-        r.notes || '',
-        r.fullPath,
-        new Date(r.createdAt).toLocaleString('ja-JP')
-      ])
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [
-      { wch: 6 },  // No
-      { wch: 10 }, // パーク
-      { wch: 22 }, // エリア
-      { wch: 26 }, // 施設
-      { wch: 10 }, // 階層
-      { wch: 20 }, // 部屋名
-      { wch: 20 }, // 空調機種別
-      { wch: 10 }, // 台数
-      { wch: 32 }, // 作業に必要なもの
-      { wch: 32 }, // アクセス方法
-      { wch: 14 }, // 入口写真
-      { wch: 14 }, // 部屋写真
-      { wch: 14 }, // 機器写真
-      { wch: 22 }, // フィルター仕様
-      { wch: 15 }, // 機番
-      { wch: 25 }, // 特記事項
-      { wch: 45 }, // フルパス
-      { wch: 20 }  // 登録日時
-    ];
-
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'TDR空調設備リスト');
-    XLSX.writeFile(wb, `TDR_空調設備現場リスト_${this.getFormattedDate()}.xlsx`);
-    this.showToast('📗 Excelファイルをダウンロードしました');
+    const modesOrder = [
+      this.exportSheetMode,
+      ...['expanded', 'room_summary', 'facility_summary', 'equip_summary'].filter(m => m !== this.exportSheetMode)
+    ];
+
+    modesOrder.forEach(mode => {
+      const ds = this.buildSheetDataset(mode, targetRecords);
+      const aoa = [ds.headers, ...ds.rows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = ds.colWidths;
+      XLSX.utils.book_append_sheet(wb, ws, ds.sheetName);
+    });
+
+    XLSX.writeFile(wb, `TDR_空調設備現場リスト_全4種集計入_${this.getFormattedDate()}.xlsx`);
+    this.showToast('📗 全4シート収録のExcelファイルをダウンロードしました！');
   }
 
   // JSONバックアップ & 復元
