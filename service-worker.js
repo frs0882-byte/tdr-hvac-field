@@ -1,5 +1,5 @@
 // Service Worker for TDR HVAC Field List (Offline PWA)
-const CACHE_NAME = 'tdr-hvac-field-v15';
+const CACHE_NAME = 'tdr-hvac-field-v16';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -9,10 +9,10 @@ const ASSETS_TO_CACHE = [
   './master-data.js',
   './qrcode.min.js',
   './manifest.json',
-  './icons/favicon.png',
-  './icons/apple-touch-icon.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
+  './favicon-6.png',
+  './apple-touch-icon-6.png',
+  './icon6-192.png',
+  './icon6-512.png',
   'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js'
 ];
 
@@ -42,7 +42,21 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // キャッシュ優先、フォールバックでネットワーク
+  // Network-first for HTML, manifest, and icons so updates appear immediately; fallback to cache offline
+  const url = e.request.url;
+  if (e.request.mode === 'navigate' || url.includes('manifest.json') || url.includes('icon6') || url.includes('apple-touch-icon')) {
+    e.respondWith(
+      fetch(e.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+        }
+        return networkResponse;
+      }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -57,7 +71,6 @@ self.addEventListener('fetch', (e) => {
         }
         return networkResponse;
       }).catch(() => {
-        // オフラインでキャッシュもない場合、index.htmlを返す
         if (e.request.mode === 'navigate') {
           return caches.match('./index.html');
         }
