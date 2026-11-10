@@ -1190,16 +1190,18 @@ class HVACApp {
 
     try {
       await this.saveRecord(recordData);
-      await this.clearDraft();
-      this.showToast(this.editingId ? 'データを更新しました！' : 'リストに追加しました！');
-      
       const wasEditing = !!this.editingId;
-      await this.resetForm(true);
+      this.showToast(wasEditing ? 'データを更新しました！' : 'リストに追加しました！（場所・階層・アクセスを引き継ぎます）');
+      
+      // 連続入力しやすいよう、登録後は「パーク・エリア・施設名・階層・アクセス方法」を残し、部屋名や台数・写真のみクリアする
+      await this.resetForm(true, true);
       await this.loadRecords();
       this.updateParkAreas();
 
       if (wasEditing) {
         this.switchTab('tab-list');
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err) {
       console.error(err);
@@ -1207,7 +1209,7 @@ class HVACApp {
     }
   }
 
-  async resetForm(alsoClearDraft = true) {
+  async resetForm(alsoClearDraft = true, keepContinuousFields = false) {
     this.isRestoringDraft = true;
     this.editingId = null;
     this.currentPhotos = { entrance: [], room: [], equipment: [] };
@@ -1219,7 +1221,12 @@ class HVACApp {
       b.classList.toggle('active', b.dataset.park === this.selectedPark);
     });
 
-    ['area-input', 'facility-input', 'floor-input', 'room-input', 'access-input', 'equipment-input', 'other-equip-input', 'machine-no-input', 'filter-spec-input', 'notes-input'].forEach(id => {
+    // keepContinuousFields=true の場合は「エリア・施設名・階層・アクセス方法」を残し、それ以外をクリア
+    const fieldsToClear = keepContinuousFields
+      ? ['room-input', 'equipment-input', 'other-equip-input', 'machine-no-input', 'filter-spec-input', 'notes-input']
+      : ['area-input', 'facility-input', 'floor-input', 'room-input', 'access-input', 'equipment-input', 'other-equip-input', 'machine-no-input', 'filter-spec-input', 'notes-input'];
+
+    fieldsToClear.forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -1237,7 +1244,14 @@ class HVACApp {
     this.renderAllChips();
     this.isRestoringDraft = false;
 
-    if (alsoClearDraft) {
+    if (keepContinuousFields) {
+      // 引き継いだ「エリア・施設・階層・アクセス」を下書きとしても保存しておく（タスクキルしても残るように）
+      await this.saveDraftNow();
+      const statusText = document.getElementById('draft-status-text');
+      if (statusText) {
+        statusText.textContent = '📍 前回の「エリア・施設名・階層・アクセス」を引き継ぎ中（続けて次の部屋を入力できます）';
+      }
+    } else if (alsoClearDraft) {
       await this.clearDraft();
     }
   }
