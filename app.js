@@ -125,16 +125,34 @@ class HVACApp {
       this.candidates[type].unshift(trimmed);
     }
 
-    this.saveCandidates();
-    this.renderAllChips();
-
-    if (type === 'area') {
-      this.updateParkAreas();
-    } else if (type === 'facility') {
-      this.updateAreaFacilities();
+    // 候補を追加した際、対応する入力欄にも即座に反映する
+    const inputMap = {
+      area: 'area-input',
+      facility: 'facility-input',
+      floor: 'floor-input',
+      room: 'room-input',
+      access: 'access-input',
+      equipment: 'equipment-input'
+    };
+    const targetEl = document.getElementById(inputMap[type]);
+    if (targetEl) {
+      if (type === 'access' || type === 'equipment') {
+        const cur = targetEl.value.trim();
+        if (!cur) targetEl.value = trimmed;
+        else if (!cur.includes(trimmed)) targetEl.value = `${cur} ${trimmed}`;
+      } else {
+        targetEl.value = trimmed;
+      }
     }
 
-    this.showToast(`「${trimmed}」を候補に追加しました`);
+    this.saveCandidates();
+    this.updateParkAreas();
+    this.updateAreaFacilities();
+    this.updatePathPreview();
+    this.renderAllChips();
+    this.scheduleSaveDraft();
+
+    this.showToast(`「${trimmed}」を候補に追加し、入力欄に反映しました`);
   }
 
   removeCandidate(type, val) {
@@ -142,20 +160,16 @@ class HVACApp {
 
     this.candidates[type] = this.candidates[type].filter(item => item !== val);
     this.saveCandidates();
+    this.updateParkAreas();
+    this.updateAreaFacilities();
     this.renderAllChips();
-
-    if (type === 'area') {
-      this.updateParkAreas();
-    } else if (type === 'facility') {
-      this.updateAreaFacilities();
-    }
 
     this.showToast(`候補「${val}」を削除しました`);
   }
 
   renderAllChips() {
-    this.renderChipsForType('area', 'area-chips', 'area-select');
-    this.renderChipsForType('facility', 'facility-chips', 'facility-select');
+    this.renderChipsForType('area', 'area-chips', 'area-input');
+    this.renderChipsForType('facility', 'facility-chips', 'facility-input');
     this.renderChipsForType('floor', 'floor-chips', 'floor-input');
     this.renderChipsForType('room', 'room-chips', 'room-input');
     this.renderChipsForType('access', 'access-chips', 'access-input');
@@ -168,6 +182,7 @@ class HVACApp {
 
     const list = this.candidates[type] || [];
     const isEditing = this.chipEditState[type];
+    const currentInputVal = (document.getElementById(targetInputId)?.value || '').trim();
 
     if (list.length === 0) {
       container.innerHTML = '<span class="text-xs text-muted">登録済みの候補はありません（＋追加ボタンから登録できます）</span>';
@@ -176,9 +191,13 @@ class HVACApp {
 
     container.innerHTML = list.map(item => {
       const deleteBtnHtml = isEditing ? `<button type="button" class="chip-delete-btn" data-type="${type}" data-val="${this.escapeHtml(item)}">✕</button>` : '';
+      const isSelected = (type === 'access' || type === 'equipment')
+        ? currentInputVal.includes(item)
+        : (currentInputVal === item && item !== '');
+      const activeClass = isSelected ? 'active-chip' : '';
 
       return `
-        <button type="button" class="chip" data-target="${targetInputId}" data-val="${this.escapeHtml(item)}">
+        <button type="button" class="chip ${activeClass}" data-target="${targetInputId}" data-val="${this.escapeHtml(item)}">
           <span>${this.escapeHtml(item)}</span>
           ${deleteBtnHtml}
         </button>
@@ -325,12 +344,8 @@ class HVACApp {
       id: DRAFT_RECORD_ID,
       editingId: this.editingId || null,
       selectedPark: this.selectedPark || 'TDS',
-      manualArea: !!this.manualArea,
-      areaSelectVal: document.getElementById('area-select')?.value || '',
-      areaManualVal: document.getElementById('area-manual')?.value || '',
-      manualFacility: !!this.manualFacility,
-      facilitySelectVal: document.getElementById('facility-select')?.value || '',
-      facilityManualVal: document.getElementById('facility-manual')?.value || '',
+      area: this.getCurrentAreaName(),
+      facility: this.getCurrentFacilityName(),
       floor: document.getElementById('floor-input')?.value || '',
       room: document.getElementById('room-input')?.value || '',
       access: document.getElementById('access-input')?.value || '',
@@ -356,8 +371,8 @@ class HVACApp {
   isDraftMeaningful(draft) {
     if (!draft) return false;
     const hasText = [
-      draft.areaSelectVal, draft.areaManualVal,
-      draft.facilitySelectVal, draft.facilityManualVal,
+      draft.area, draft.areaSelectVal, draft.areaManualVal,
+      draft.facility, draft.facilitySelectVal, draft.facilityManualVal,
       draft.floor, draft.room, draft.access, draft.equipment,
       draft.otherEquipment, draft.filterSpec, draft.machineNo, draft.notes
     ].some(v => v && String(v).trim().length > 0 && v !== '__MANUAL__');
@@ -470,43 +485,17 @@ class HVACApp {
         b.classList.toggle('active', b.dataset.park === this.selectedPark);
       });
       this.updateParkAreas();
-
-      // エリア復元
-      this.setManualArea(!!targetDraft.manualArea);
-      const areaSelect = document.getElementById('area-select');
-      const areaManual = document.getElementById('area-manual');
-      if (areaManual) areaManual.value = targetDraft.areaManualVal || '';
-      if (areaSelect && targetDraft.areaSelectVal) {
-        if (!Array.from(areaSelect.options).some(o => o.value === targetDraft.areaSelectVal) && targetDraft.areaSelectVal !== '__MANUAL__') {
-          const opt = document.createElement('option');
-          opt.value = targetDraft.areaSelectVal;
-          opt.textContent = targetDraft.areaSelectVal;
-          areaSelect.insertBefore(opt, areaSelect.lastElementChild);
-        }
-        areaSelect.value = targetDraft.areaSelectVal;
-      }
       this.updateAreaFacilities();
 
-      // 施設復元
-      this.setManualFacility(!!targetDraft.manualFacility);
-      const facSelect = document.getElementById('facility-select');
-      const facManual = document.getElementById('facility-manual');
-      if (facManual) facManual.value = targetDraft.facilityManualVal || '';
-      if (facSelect && targetDraft.facilitySelectVal) {
-        if (!Array.from(facSelect.options).some(o => o.value === targetDraft.facilitySelectVal) && targetDraft.facilitySelectVal !== '__MANUAL__') {
-          const opt = document.createElement('option');
-          opt.value = targetDraft.facilitySelectVal;
-          opt.textContent = targetDraft.facilitySelectVal;
-          facSelect.insertBefore(opt, facSelect.lastElementChild);
-        }
-        facSelect.value = targetDraft.facilitySelectVal;
-      }
-
-      // テキスト項目復元
+      // テキスト項目復元 (エリア・施設・階層・部屋・アクセス・機材・仕様・機番・備考)
       const setVal = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.value = val || '';
       };
+      const restoredArea = targetDraft.area || targetDraft.areaManualVal || (targetDraft.areaSelectVal !== '__MANUAL__' ? targetDraft.areaSelectVal : '') || '';
+      const restoredFacility = targetDraft.facility || targetDraft.facilityManualVal || (targetDraft.facilitySelectVal !== '__MANUAL__' ? targetDraft.facilitySelectVal : '') || '';
+      setVal('area-input', restoredArea);
+      setVal('facility-input', restoredFacility);
       setVal('floor-input', targetDraft.floor);
       setVal('room-input', targetDraft.room);
       setVal('access-input', targetDraft.access);
@@ -577,87 +566,34 @@ class HVACApp {
       });
     });
 
-    // エリア変更
-    document.getElementById('area-select').addEventListener('change', (e) => {
-      if (e.target.value === '__MANUAL__') {
-        this.setManualArea(true);
-        setTimeout(() => document.getElementById('area-manual').focus(), 50);
-      } else {
-        this.manualArea = false;
-        this.updateAreaFacilities();
-        this.updatePathPreview();
-        this.renderAllChips();
+    // エリア・施設・階層・部屋名の入力イベント（すべてリアルタイムにパスプレビュー＆チップハイライト＆自動保存）
+    ['area-input', 'facility-input', 'floor-input', 'room-input'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', () => {
+          this.updatePathPreview();
+          this.renderAllChips();
+          this.scheduleSaveDraft();
+        });
+        el.addEventListener('change', () => {
+          this.updatePathPreview();
+          this.renderAllChips();
+          this.scheduleSaveDraft();
+        });
       }
-      this.scheduleSaveDraft();
     });
 
-    // エリア手入力切替
-    document.getElementById('toggle-manual-area').addEventListener('click', () => {
-      this.setManualArea(!this.manualArea);
-      if (this.manualArea) {
-        setTimeout(() => document.getElementById('area-manual').focus(), 50);
-      }
-      this.updateAreaFacilities();
-      this.updatePathPreview();
-      this.renderAllChips();
-      this.scheduleSaveDraft();
-    });
-
-    document.getElementById('area-manual').addEventListener('input', () => {
-      this.updateAreaFacilities();
-      this.updatePathPreview();
-      this.renderAllChips();
-      this.scheduleSaveDraft();
-    });
-
-    // 施設検索
-    document.getElementById('facility-filter').addEventListener('input', (e) => {
-      this.filterFacilities(e.target.value);
-    });
-
-    // 施設変更
-    document.getElementById('facility-select').addEventListener('change', (e) => {
-      if (e.target.value === '__MANUAL__') {
-        this.setManualFacility(true);
-        setTimeout(() => document.getElementById('facility-manual').focus(), 50);
-      } else {
-        this.manualFacility = false;
-        this.updatePathPreview();
-        this.renderAllChips();
-      }
-      this.scheduleSaveDraft();
-    });
-
-    // 施設手入力切替
-    document.getElementById('toggle-manual-facility').addEventListener('click', () => {
-      this.setManualFacility(!this.manualFacility);
-      if (this.manualFacility) {
-        setTimeout(() => document.getElementById('facility-manual').focus(), 50);
-      }
-      this.updatePathPreview();
-      this.renderAllChips();
-      this.scheduleSaveDraft();
-    });
-
-    document.getElementById('facility-manual').addEventListener('input', () => {
-      this.updatePathPreview();
-      this.renderAllChips();
-      this.scheduleSaveDraft();
-    });
-
-    document.getElementById('floor-input')?.addEventListener('input', () => {
-      this.updatePathPreview();
-      this.scheduleSaveDraft();
-    });
-
-    document.getElementById('room-input').addEventListener('input', () => {
-      this.updatePathPreview();
-      this.scheduleSaveDraft();
-    });
-
-    // その他すべての入力欄での自動下書き保存
+    // その他すべての入力欄での自動下書き保存＆チップ状態更新
     ['access-input', 'equipment-input', 'other-equip-input', 'filter-spec-input', 'machine-no-input', 'notes-input'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => this.scheduleSaveDraft());
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', () => {
+          if (id === 'access-input' || id === 'equipment-input') {
+            this.renderAllChips();
+          }
+          this.scheduleSaveDraft();
+        });
+      }
     });
 
     // 入力クリアボタン（下書き消去）
@@ -726,8 +662,7 @@ class HVACApp {
         this.chipEditState[type] = !this.chipEditState[type];
         btn.classList.toggle('active-edit', this.chipEditState[type]);
         btn.textContent = this.chipEditState[type] ? '完了' : '⚙️ 編集';
-        const targetInputId = (type === 'area' || type === 'facility') ? `${type}-select` : `${type}-input`;
-        this.renderChipsForType(type, `${type}-chips`, targetInputId);
+        this.renderChipsForType(type, `${type}-chips`, `${type}-input`);
       });
     };
     bindEditToggle('toggle-edit-area-chip-btn', 'area');
@@ -740,6 +675,14 @@ class HVACApp {
     // 候補モーダル閉じる
     document.getElementById('close-candidate-modal').addEventListener('click', () => {
       document.getElementById('candidate-modal').classList.add('hidden');
+    });
+
+    // 候補モーダルでEnterキー押下時も保存可能にする
+    document.getElementById('candidate-input-val')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('save-candidate-btn')?.click();
+      }
     });
 
     // 候補モーダル保存
@@ -773,53 +716,9 @@ class HVACApp {
       const targetId = chip.dataset.target;
       const val = chip.dataset.val;
       const input = document.getElementById(targetId);
-
-      // エリアチップの選択
-      if (targetId === 'area-select') {
-        this.setManualArea(false);
-        const sel = document.getElementById('area-select');
-        if (sel) {
-          sel.value = val;
-          if (sel.value !== val) {
-            const opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = val;
-            sel.insertBefore(opt, sel.lastElementChild);
-            sel.value = val;
-          }
-        }
-        document.getElementById('area-manual').value = val;
-        this.updateAreaFacilities();
-        this.updatePathPreview();
-        this.renderAllChips();
-        this.scheduleSaveDraft();
-        return;
-      }
-
-      // 施設チップの選択
-      if (targetId === 'facility-select') {
-        this.setManualFacility(false);
-        const sel = document.getElementById('facility-select');
-        if (sel) {
-          sel.value = val;
-          if (sel.value !== val) {
-            const opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = val;
-            sel.insertBefore(opt, sel.lastElementChild);
-            sel.value = val;
-          }
-        }
-        document.getElementById('facility-manual').value = val;
-        this.updatePathPreview();
-        this.renderAllChips();
-        this.scheduleSaveDraft();
-        return;
-      }
-
       if (!input) return;
 
-      if (targetId === 'room-input' || targetId === 'floor-input') {
+      if (targetId === 'area-input' || targetId === 'facility-input' || targetId === 'floor-input' || targetId === 'room-input') {
         input.value = val;
       } else {
         const cur = input.value.trim();
@@ -829,7 +728,8 @@ class HVACApp {
           input.value = `${cur} ${val}`;
         }
       }
-      input.dispatchEvent(new Event('input'));
+      this.updatePathPreview();
+      this.renderAllChips();
       this.scheduleSaveDraft();
     });
 
@@ -1152,138 +1052,35 @@ class HVACApp {
     modal.classList.remove('hidden');
   }
 
-  // ================= 6. 階層ドリルダウン & 自由入力切替 =================
-  setManualArea(isManual) {
-    this.manualArea = isManual;
-    const selectBox = document.getElementById('area-select');
-    const manualInput = document.getElementById('area-manual');
-    const toggleBtn = document.getElementById('toggle-manual-area');
-
-    if (this.manualArea) {
-      selectBox.classList.add('hidden');
-      manualInput.classList.remove('hidden');
-      if (toggleBtn) toggleBtn.textContent = '📋 リスト選択に戻す';
-    } else {
-      selectBox.classList.remove('hidden');
-      manualInput.classList.add('hidden');
-      if (toggleBtn) toggleBtn.textContent = '✏️ 自由入力に切替';
-    }
-  }
-
-  setManualFacility(isManual) {
-    this.manualFacility = isManual;
-    const selectBox = document.getElementById('facility-select-container');
-    const manualInput = document.getElementById('facility-manual');
-    const toggleBtn = document.getElementById('toggle-manual-facility');
-
-    if (this.manualFacility) {
-      selectBox.classList.add('hidden');
-      manualInput.classList.remove('hidden');
-      if (toggleBtn) toggleBtn.textContent = '📋 リスト選択に戻す';
-    } else {
-      selectBox.classList.remove('hidden');
-      manualInput.classList.add('hidden');
-      if (toggleBtn) toggleBtn.textContent = '✏️ 自由入力に切替';
-    }
-  }
-
+  // ================= 6. エリア・施設入力 & 候補サジェスト連携 =================
   getCurrentAreaName() {
-    if (this.manualArea) {
-      return document.getElementById('area-manual').value.trim();
-    }
-    const val = document.getElementById('area-select').value;
-    if (val === '__MANUAL__' || !val) {
-      return document.getElementById('area-manual').value.trim();
-    }
-    return val;
+    return (document.getElementById('area-input')?.value || '').trim();
   }
 
   getCurrentFacilityName() {
-    if (this.manualFacility) {
-      return document.getElementById('facility-manual').value.trim();
-    }
-    const val = document.getElementById('facility-select').value;
-    if (val === '__MANUAL__' || !val) {
-      return document.getElementById('facility-manual').value.trim();
-    }
-    return val;
+    return (document.getElementById('facility-input')?.value || '').trim();
   }
 
   updateParkAreas() {
-    const areaSelect = document.getElementById('area-select');
-    const manualInput = document.getElementById('area-manual');
-    const toggleBtn = document.getElementById('toggle-manual-area');
-    const areas = this.candidates.area || [];
-
-    if (toggleBtn) toggleBtn.classList.remove('hidden');
-
-    let optionsHtml = '<option value="">(エリアを選択)</option>';
-    optionsHtml += areas.map(area => `<option value="${this.escapeHtml(area)}">${this.escapeHtml(area)}</option>`).join('');
-    optionsHtml += '<option value="__MANUAL__">✏️ ＋ 新規エリアを直接手入力...</option>';
-    areaSelect.innerHTML = optionsHtml;
-
-    const cur = this.manualArea ? manualInput.value.trim() : areaSelect.value;
-    if (cur && areas.includes(cur)) {
-      areaSelect.value = cur;
+    const datalist = document.getElementById('area-datalist');
+    if (datalist) {
+      const candidateAreas = this.candidates.area || [];
+      const recordAreas = this.records.filter(r => r.park === this.selectedPark).map(r => r.area);
+      const uniqueAreas = Array.from(new Set([...candidateAreas, ...recordAreas].filter(Boolean)));
+      datalist.innerHTML = uniqueAreas.map(a => `<option value="${this.escapeHtml(a)}"></option>`).join('');
     }
-
-    if (this.manualArea) {
-      areaSelect.classList.add('hidden');
-      manualInput.classList.remove('hidden');
-    } else {
-      areaSelect.classList.remove('hidden');
-      manualInput.classList.add('hidden');
-    }
-
     this.updateAreaFacilities();
     this.updatePathPreview();
     this.renderAllChips();
   }
 
   updateAreaFacilities() {
-    const facSelect = document.getElementById('facility-select');
-    const facContainer = document.getElementById('facility-select-container');
-    const manualInput = document.getElementById('facility-manual');
-    const toggleBtn = document.getElementById('toggle-manual-facility');
-    const facilities = this.candidates.facility || [];
-
-    if (toggleBtn) toggleBtn.classList.remove('hidden');
-
-    let optionsHtml = '<option value="">(施設を選択)</option>';
-    optionsHtml += facilities.map(f => `<option value="${this.escapeHtml(f)}">${this.escapeHtml(f)}</option>`).join('');
-    optionsHtml += '<option value="__MANUAL__">✏️ ＋ 新規施設を直接手入力...</option>';
-    facSelect.innerHTML = optionsHtml;
-
-    const cur = this.manualFacility ? manualInput.value.trim() : facSelect.value;
-    if (cur && facilities.includes(cur)) {
-      facSelect.value = cur;
-    }
-
-    if (this.manualFacility) {
-      facContainer.classList.add('hidden');
-      manualInput.classList.remove('hidden');
-    } else {
-      facContainer.classList.remove('hidden');
-      manualInput.classList.add('hidden');
-    }
-
-    this.updatePathPreview();
-    this.renderAllChips();
-  }
-
-  filterFacilities(query) {
-    const facilities = this.candidates.facility || [];
-    const q = (query || '').trim().toLowerCase();
-    const filtered = q ? facilities.filter(f => f.toLowerCase().includes(q)) : facilities;
-
-    const facSelect = document.getElementById('facility-select');
-    let optionsHtml = '<option value="">(施設を選択)</option>';
-    optionsHtml += filtered.map(f => `<option value="${this.escapeHtml(f)}">${this.escapeHtml(f)}</option>`).join('');
-    optionsHtml += '<option value="__MANUAL__">✏️ ＋ 新規施設を直接手入力...</option>';
-    facSelect.innerHTML = optionsHtml;
-
-    if (filtered.length > 0) {
-      facSelect.value = filtered[0];
+    const datalist = document.getElementById('facility-datalist');
+    if (datalist) {
+      const candidateFacs = this.candidates.facility || [];
+      const recordFacs = this.records.filter(r => r.park === this.selectedPark).map(r => r.facility);
+      const uniqueFacs = Array.from(new Set([...candidateFacs, ...recordFacs].filter(Boolean)));
+      datalist.innerHTML = uniqueFacs.map(f => `<option value="${this.escapeHtml(f)}"></option>`).join('');
     }
     this.updatePathPreview();
     this.renderAllChips();
@@ -1311,7 +1108,19 @@ class HVACApp {
     const area = this.getCurrentAreaName();
     const facility = this.getCurrentFacilityName();
     const floor = document.getElementById('floor-input')?.value.trim() || '';
-    const room = document.getElementById('room-input').value.trim();
+    const room = document.getElementById('room-input')?.value.trim() || '';
+
+    if (!area) {
+      this.showToast('エリア / テーマポートを入力（または候補から選択）してください', true);
+      document.getElementById('area-input')?.focus();
+      return;
+    }
+
+    if (!facility) {
+      this.showToast('施設 / アトラクション名を入力（または候補から選択）してください', true);
+      document.getElementById('facility-input')?.focus();
+      return;
+    }
 
     if (!floor) {
       this.showToast('階層（1Fなど）を入力してください', true);
@@ -1321,7 +1130,7 @@ class HVACApp {
 
     if (!room) {
       this.showToast('部屋名を入力してください', true);
-      document.getElementById('room-input').focus();
+      document.getElementById('room-input')?.focus();
       return;
     }
 
@@ -1406,29 +1215,26 @@ class HVACApp {
     document.getElementById('edit-indicator').classList.add('hidden');
     document.getElementById('save-btn').textContent = '💾 この内容をリストに追加';
 
-    const floorInput = document.getElementById('floor-input');
-    if (floorInput) floorInput.value = '';
-    document.getElementById('room-input').value = '';
-    document.getElementById('access-input').value = '';
-    document.getElementById('equipment-input').value = '';
+    document.querySelectorAll('.park-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.park === this.selectedPark);
+    });
+
+    ['area-input', 'facility-input', 'floor-input', 'room-input', 'access-input', 'equipment-input', 'other-equip-input', 'machine-no-input', 'filter-spec-input', 'notes-input'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
     
     // ステッパーリセット (PAC各形式・全熱・FCU)
     ['pac-cassette-count', 'pac-floor-count', 'pac-ceiling-count', 'pac-wall-count', 'pac-other-count', 'hex-count', 'fcu-count'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '0';
     });
-    document.getElementById('other-equip-input').value = '';
     this.updateTotalUnits();
-
-    document.getElementById('area-manual').value = '';
-    document.getElementById('facility-manual').value = '';
-    document.getElementById('machine-no-input').value = '';
-    document.getElementById('filter-spec-input').value = '';
-    document.getElementById('notes-input').value = '';
 
     this.updateParkAreas();
     this.renderAllPhotoSlots();
     this.updatePathPreview();
+    this.renderAllChips();
     this.isRestoringDraft = false;
 
     if (alsoClearDraft) {
@@ -1447,38 +1253,21 @@ class HVACApp {
     document.getElementById('edit-indicator').classList.remove('hidden');
     document.getElementById('save-btn').textContent = '💾 変更を上書き保存';
 
-    this.selectedPark = rec.park;
+    this.selectedPark = rec.park || 'TDS';
     document.querySelectorAll('.park-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.park === rec.park);
+      b.classList.toggle('active', b.dataset.park === this.selectedPark);
     });
-    this.updateParkAreas();
 
-    const areaSelect = document.getElementById('area-select');
-    const matchedArea = Array.from(areaSelect.options).find(o => o.value === rec.area);
-    if (matchedArea) {
-      this.setManualArea(false);
-      areaSelect.value = rec.area;
-    } else {
-      this.setManualArea(true);
-      document.getElementById('area-manual').value = rec.area;
-    }
-    this.updateAreaFacilities();
-
-    const facSelect = document.getElementById('facility-select');
-    const matchedOpt = Array.from(facSelect.options).find(o => o.value === rec.facility);
-    if (matchedOpt) {
-      this.setManualFacility(false);
-      facSelect.value = rec.facility;
-    } else {
-      this.setManualFacility(true);
-      document.getElementById('facility-manual').value = rec.facility;
-    }
-
-    const floorInput = document.getElementById('floor-input');
-    if (floorInput) floorInput.value = rec.floor || '';
-    document.getElementById('room-input').value = rec.room;
-    document.getElementById('access-input').value = rec.access || '';
-    document.getElementById('equipment-input').value = rec.equipment || '';
+    const setVal = (elId, v) => {
+      const el = document.getElementById(elId);
+      if (el) el.value = v || '';
+    };
+    setVal('area-input', rec.area);
+    setVal('facility-input', rec.facility);
+    setVal('floor-input', rec.floor);
+    setVal('room-input', rec.room);
+    setVal('access-input', rec.access);
+    setVal('equipment-input', rec.equipment);
 
     // 空調機台数セット (PAC形式別・全熱・FCU)
     const subs = rec.pacSubtypes || {};
@@ -1489,16 +1278,17 @@ class HVACApp {
     document.getElementById('pac-other-count').value = subs.other || (rec.pacCount && !subs.cassette && !subs.floor && !subs.ceiling && !subs.wall ? rec.pacCount : 0);
     document.getElementById('hex-count').value = rec.hexCount || 0;
     document.getElementById('fcu-count').value = rec.fcuCount || 0;
-    document.getElementById('other-equip-input').value = rec.otherEquipment || '';
+    setVal('other-equip-input', rec.otherEquipment);
     this.updateTotalUnits();
 
-    document.getElementById('machine-no-input').value = rec.machineNo || '';
-    document.getElementById('filter-spec-input').value = rec.filterSpec || '';
-    document.getElementById('notes-input').value = rec.notes || '';
+    setVal('machine-no-input', rec.machineNo);
+    setVal('filter-spec-input', rec.filterSpec);
+    setVal('notes-input', rec.notes);
 
     // 写真の復元
     const normalized = this.normalizePhotos(rec);
     this.currentPhotos = JSON.parse(JSON.stringify(normalized));
+    this.updateParkAreas();
     this.renderAllPhotoSlots();
     this.updatePathPreview();
     this.renderAllChips();
@@ -1517,38 +1307,21 @@ class HVACApp {
     await this.resetForm(false);
     this.isRestoringDraft = true;
 
-    this.selectedPark = rec.park;
+    this.selectedPark = rec.park || 'TDS';
     document.querySelectorAll('.park-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.park === rec.park);
+      b.classList.toggle('active', b.dataset.park === this.selectedPark);
     });
-    this.updateParkAreas();
 
-    const areaSelect = document.getElementById('area-select');
-    const matchedArea = Array.from(areaSelect.options).find(o => o.value === rec.area);
-    if (matchedArea) {
-      this.setManualArea(false);
-      areaSelect.value = rec.area;
-    } else {
-      this.setManualArea(true);
-      document.getElementById('area-manual').value = rec.area;
-    }
-    this.updateAreaFacilities();
-
-    const facSelect = document.getElementById('facility-select');
-    const matchedOpt = Array.from(facSelect.options).find(o => o.value === rec.facility);
-    if (matchedOpt) {
-      this.setManualFacility(false);
-      facSelect.value = rec.facility;
-    } else {
-      this.setManualFacility(true);
-      document.getElementById('facility-manual').value = rec.facility;
-    }
-
-    const floorInput = document.getElementById('floor-input');
-    if (floorInput) floorInput.value = rec.floor || '';
-    document.getElementById('room-input').value = rec.room + ' (複製)';
-    document.getElementById('access-input').value = rec.access || '';
-    document.getElementById('equipment-input').value = rec.equipment || '';
+    const setVal = (elId, v) => {
+      const el = document.getElementById(elId);
+      if (el) el.value = v || '';
+    };
+    setVal('area-input', rec.area);
+    setVal('facility-input', rec.facility);
+    setVal('floor-input', rec.floor);
+    setVal('room-input', (rec.room || '') + ' (複製)');
+    setVal('access-input', rec.access);
+    setVal('equipment-input', rec.equipment);
 
     // 空調機台数も引き継ぎ (PAC形式別・全熱・FCU)
     const subs = rec.pacSubtypes || {};

@@ -95,16 +95,11 @@
               </div>
             </div>
 
-            <!-- エリア選択 -->
+            <!-- エリア / テーマポート -->
             <div class="form-group">
-              <div class="label-row">
-                <label for="area-select" class="form-label">エリア / テーマポート <span class="req">*</span></label>
-                <button type="button" id="toggle-manual-area" class="btn-link">✏️ 自由入力に切替</button>
-              </div>
-              <select id="area-select" class="form-select">
-                <!-- 動的生成 -->
-              </select>
-              <input type="text" id="area-manual" class="form-input hidden mt-1" placeholder="エリア名を入力 (例: ポートディスカバリー)">
+              <label for="area-input" class="form-label">エリア / テーマポート <span class="req">*</span></label>
+              <input type="text" id="area-input" list="area-datalist" class="form-input" placeholder="例: メディテレーニアンハーバー、その他 (直接入力または下の候補をタップ)" autocomplete="off" required>
+              <datalist id="area-datalist"></datalist>
               
               <!-- エリア候補チップ -->
               <div id="area-chips-container" class="quick-chip-container mt-1">
@@ -123,17 +118,9 @@
 
             <!-- 施設 / アトラクション名 -->
             <div class="form-group">
-              <div class="label-row">
-                <label for="facility-select" class="form-label">施設 / アトラクション <span class="req">*</span></label>
-                <button type="button" id="toggle-manual-facility" class="btn-link">✏️ 自由入力に切替</button>
-              </div>
-              <div id="facility-select-container">
-                <input type="text" id="facility-filter" class="form-input" placeholder="🔍 施設名で絞り込み" autocomplete="off">
-                <select id="facility-select" class="form-select mt-1">
-                  <!-- 動的生成 -->
-                </select>
-              </div>
-              <input type="text" id="facility-manual" class="form-input hidden" placeholder="施設・建物名を入力 (例: センター・オブ・ジ・アース)">
+              <label for="facility-input" class="form-label">施設 / アトラクション <span class="req">*</span></label>
+              <input type="text" id="facility-input" list="facility-datalist" class="form-input" placeholder="例: センター・オブ・ジ・アース、ソアリン (直接入力または下の候補をタップ)" autocomplete="off" required>
+              <datalist id="facility-datalist"></datalist>
 
               <!-- 施設候補チップ -->
               <div id="facility-chips-container" class="quick-chip-container mt-1">

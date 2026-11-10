@@ -1,5 +1,5 @@
 // Service Worker for TDR HVAC Field List (Offline PWA)
-const CACHE_NAME = 'tdr-hvac-field-v16';
+const CACHE_NAME = 'tdr-hvac-field-v17';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -42,35 +42,19 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Network-first for HTML, manifest, and icons so updates appear immediately; fallback to cache offline
-  const url = e.request.url;
-  if (e.request.mode === 'navigate' || url.includes('manifest.json') || url.includes('icon6') || url.includes('apple-touch-icon')) {
-    e.respondWith(
-      fetch(e.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
-        }
-        return networkResponse;
-      }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
-    );
-    return;
-  }
-
+  // Network-first for all app files so updates appear immediately; fallback to cache offline
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
+    fetch(e.request).then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200) {
+        const clone = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
       }
-      return fetch(e.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(e.request, responseToCache);
-          });
+      return networkResponse;
+    }).catch(() => {
+      return caches.match(e.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
         }
-        return networkResponse;
-      }).catch(() => {
         if (e.request.mode === 'navigate') {
           return caches.match('./index.html');
         }
