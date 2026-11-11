@@ -233,16 +233,18 @@ class HVACApp {
     const cCeil = parseInt(document.getElementById('pac-ceiling-count')?.value || '0', 10) || 0;
     const cWall = parseInt(document.getElementById('pac-wall-count')?.value || '0', 10) || 0;
     const cOther = parseInt(document.getElementById('pac-other-count')?.value || '0', 10) || 0;
+    const cUnk = parseInt(document.getElementById('pac-unknown-count')?.value || '0', 10) || 0;
 
     const pacSubtypes = {
       cassette: cCas,
       floor: cFloor,
       ceiling: cCeil,
       wall: cWall,
-      other: cOther
+      other: cOther,
+      unknown: cUnk
     };
 
-    const pacTotal = cCas + cFloor + cCeil + cWall + cOther;
+    const pacTotal = cCas + cFloor + cCeil + cWall + cOther + cUnk;
     const hex = parseInt(document.getElementById('hex-count')?.value || '0', 10) || 0;
     const fcu = parseInt(document.getElementById('fcu-count')?.value || '0', 10) || 0;
 
@@ -512,6 +514,7 @@ class HVACApp {
       setVal('pac-ceiling-count', subs.ceiling || 0);
       setVal('pac-wall-count', subs.wall || 0);
       setVal('pac-other-count', subs.other || 0);
+      setVal('pac-unknown-count', subs.unknown || 0);
       setVal('hex-count', targetDraft.hexCount || 0);
       setVal('fcu-count', targetDraft.fcuCount || 0);
       this.updateTotalUnits();
@@ -636,7 +639,7 @@ class HVACApp {
     });
 
     // ステッパーインプット直接変更
-    ['pac-cassette-count', 'pac-floor-count', 'pac-ceiling-count', 'pac-wall-count', 'pac-other-count', 'hex-count', 'fcu-count'].forEach(id => {
+    ['pac-cassette-count', 'pac-floor-count', 'pac-ceiling-count', 'pac-wall-count', 'pac-other-count', 'pac-unknown-count', 'hex-count', 'fcu-count'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener('input', () => {
@@ -746,6 +749,18 @@ class HVACApp {
     bindPhotoSlot('album-room', 'room');
     bindPhotoSlot('camera-equipment', 'equipment');
     bindPhotoSlot('album-equipment', 'equipment');
+
+    // 写真登録アコーディオン（折りたたみ・展開）
+    const togglePhotoBtn = document.getElementById('toggle-photo-section-btn');
+    if (togglePhotoBtn) {
+      togglePhotoBtn.addEventListener('click', () => this.togglePhotoSection());
+      togglePhotoBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.togglePhotoSection();
+        }
+      });
+    }
 
     // フォーム保存
     document.getElementById('record-form').addEventListener('submit', (e) => this.handleFormSubmit(e));
@@ -975,6 +990,7 @@ class HVACApp {
 
     e.target.value = '';
     this.renderAllPhotoSlots();
+    this.togglePhotoSection(true);
     await this.saveDraftNow();
     this.showToast('📸 写真を追加し、自動下書き保存しました');
   }
@@ -1012,10 +1028,47 @@ class HVACApp {
     });
   }
 
+  togglePhotoSection(forceOpen = null) {
+    const body = document.getElementById('photo-accordion-body');
+    const toggleText = document.getElementById('photo-toggle-text');
+    const arrow = document.getElementById('photo-accordion-arrow');
+    if (!body) return;
+
+    const isCurrentlyCollapsed = body.classList.contains('collapsed');
+    const willOpen = forceOpen !== null ? forceOpen : isCurrentlyCollapsed;
+
+    if (willOpen) {
+      body.classList.remove('collapsed');
+      if (toggleText) toggleText.textContent = 'たたむ';
+      if (arrow) arrow.textContent = '▲';
+    } else {
+      body.classList.add('collapsed');
+      if (toggleText) toggleText.textContent = '開く';
+      if (arrow) arrow.textContent = '▽';
+    }
+  }
+
+  updatePhotoAccordionBadge() {
+    const totalCount = (this.currentPhotos.entrance?.length || 0) +
+                       (this.currentPhotos.room?.length || 0) +
+                       (this.currentPhotos.equipment?.length || 0);
+
+    const badge = document.getElementById('photo-total-badge');
+    if (badge) {
+      if (totalCount > 0) {
+        badge.textContent = `📸 ${totalCount}枚登録中`;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+  }
+
   renderAllPhotoSlots() {
     this.renderSlotGrid('entrance', 'entrance-preview-grid');
     this.renderSlotGrid('room', 'room-preview-grid');
     this.renderSlotGrid('equipment', 'equipment-preview-grid');
+    this.updatePhotoAccordionBadge();
   }
 
   renderSlotGrid(slotType, gridId) {
@@ -1145,6 +1198,7 @@ class HVACApp {
       if (pacSubtypes.ceiling > 0) summaryParts.push(`PAC天吊り: ${pacSubtypes.ceiling}台`);
       if (pacSubtypes.wall > 0) summaryParts.push(`PAC壁掛け: ${pacSubtypes.wall}台`);
       if (pacSubtypes.other > 0) summaryParts.push(`PACその他: ${pacSubtypes.other}台`);
+      if (pacSubtypes.unknown > 0) summaryParts.push(`PAC(種別確認中): ${pacSubtypes.unknown}台`);
     } else if (pac > 0) {
       summaryParts.push(`PAC: ${pac}台`);
     }
@@ -1232,7 +1286,7 @@ class HVACApp {
     });
     
     // ステッパーリセット (PAC各形式・全熱・FCU)
-    ['pac-cassette-count', 'pac-floor-count', 'pac-ceiling-count', 'pac-wall-count', 'pac-other-count', 'hex-count', 'fcu-count'].forEach(id => {
+    ['pac-cassette-count', 'pac-floor-count', 'pac-ceiling-count', 'pac-wall-count', 'pac-other-count', 'pac-unknown-count', 'hex-count', 'fcu-count'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '0';
     });
@@ -1240,6 +1294,7 @@ class HVACApp {
 
     this.updateParkAreas();
     this.renderAllPhotoSlots();
+    this.togglePhotoSection(false);
     this.updatePathPreview();
     this.renderAllChips();
     this.isRestoringDraft = false;
@@ -1289,7 +1344,8 @@ class HVACApp {
     document.getElementById('pac-floor-count').value = subs.floor || 0;
     document.getElementById('pac-ceiling-count').value = subs.ceiling || 0;
     document.getElementById('pac-wall-count').value = subs.wall || 0;
-    document.getElementById('pac-other-count').value = subs.other || (rec.pacCount && !subs.cassette && !subs.floor && !subs.ceiling && !subs.wall ? rec.pacCount : 0);
+    document.getElementById('pac-other-count').value = subs.other || (rec.pacCount && !subs.cassette && !subs.floor && !subs.ceiling && !subs.wall && !subs.unknown ? rec.pacCount : 0);
+    document.getElementById('pac-unknown-count').value = subs.unknown || 0;
     document.getElementById('hex-count').value = rec.hexCount || 0;
     document.getElementById('fcu-count').value = rec.fcuCount || 0;
     setVal('other-equip-input', rec.otherEquipment);
@@ -1304,6 +1360,7 @@ class HVACApp {
     this.currentPhotos = JSON.parse(JSON.stringify(normalized));
     this.updateParkAreas();
     this.renderAllPhotoSlots();
+    this.togglePhotoSection(false);
     this.updatePathPreview();
     this.renderAllChips();
     this.isRestoringDraft = false;
@@ -1343,7 +1400,8 @@ class HVACApp {
     document.getElementById('pac-floor-count').value = subs.floor || 0;
     document.getElementById('pac-ceiling-count').value = subs.ceiling || 0;
     document.getElementById('pac-wall-count').value = subs.wall || 0;
-    document.getElementById('pac-other-count').value = subs.other || (rec.pacCount && !subs.cassette && !subs.floor && !subs.ceiling && !subs.wall ? rec.pacCount : 0);
+    document.getElementById('pac-other-count').value = subs.other || (rec.pacCount && !subs.cassette && !subs.floor && !subs.ceiling && !subs.wall && !subs.unknown ? rec.pacCount : 0);
+    document.getElementById('pac-unknown-count').value = subs.unknown || 0;
     document.getElementById('hex-count').value = rec.hexCount || 0;
     document.getElementById('fcu-count').value = rec.fcuCount || 0;
     document.getElementById('other-equip-input').value = rec.otherEquipment || '';
@@ -1501,7 +1559,9 @@ class HVACApp {
           if (filterUnitType === 'floor' && !(subs.floor > 0)) return false;
           if (filterUnitType === 'ceiling' && !(subs.ceiling > 0)) return false;
           if (filterUnitType === 'wall' && !(subs.wall > 0)) return false;
-          if (filterUnitType === 'pac_any' && !(pac > 0)) return false;
+          if (filterUnitType === 'other_pac' && !(subs.other > 0)) return false;
+          if (filterUnitType === 'unknown_pac' && !(subs.unknown > 0)) return false;
+          if (filterUnitType === 'pac_any' && !(pac > 0 || (subs.cassette || 0) + (subs.floor || 0) + (subs.ceiling || 0) + (subs.wall || 0) + (subs.other || 0) + (subs.unknown || 0) > 0)) return false;
           if (filterUnitType === 'hex' && !(hex > 0)) return false;
           if (filterUnitType === 'fcu' && !(fcu > 0)) return false;
           if (filterUnitType === 'other' && !other) return false;
@@ -1589,7 +1649,7 @@ class HVACApp {
     }
 
     let totalUnits = 0;
-    let cas = 0, flr = 0, ceil = 0, wall = 0, pacOth = 0, hex = 0, fcu = 0;
+    let cas = 0, flr = 0, ceil = 0, wall = 0, pacOth = 0, pacUnk = 0, hex = 0, fcu = 0;
     const facSet = new Set();
 
     filtered.forEach(r => {
@@ -1599,12 +1659,14 @@ class HVACApp {
       const cFlr = subs.floor || 0;
       const cCeil = subs.ceiling || 0;
       const cWall = subs.wall || 0;
-      const cOth = subs.other || (r.pacCount && !cCas && !cFlr && !cCeil && !cWall ? r.pacCount : 0);
+      const cOth = subs.other || (r.pacCount && !cCas && !cFlr && !cCeil && !cWall && !subs.unknown ? r.pacCount : 0);
+      const cUnk = subs.unknown || 0;
       cas += cCas;
       flr += cFlr;
       ceil += cCeil;
       wall += cWall;
       pacOth += cOth;
+      pacUnk += cUnk;
       hex += (r.hexCount || 0);
       fcu += (r.fcuCount || 0);
       totalUnits += (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0)));
@@ -1620,6 +1682,7 @@ class HVACApp {
     if (ceil > 0) pills.push(`<span class="stat-pill">天吊: ${ceil}台</span>`);
     if (wall > 0) pills.push(`<span class="stat-pill">壁掛: ${wall}台</span>`);
     if (pacOth > 0) pills.push(`<span class="stat-pill">他PAC: ${pacOth}台</span>`);
+    if (pacUnk > 0) pills.push(`<span class="stat-pill">確認中: ${pacUnk}台</span>`);
     if (hex > 0) pills.push(`<span class="stat-pill">🔄 全熱: ${hex}台</span>`);
     if (fcu > 0) pills.push(`<span class="stat-pill">💨 FCU: ${fcu}台</span>`);
 
@@ -1761,6 +1824,7 @@ class HVACApp {
     if (subs.ceiling > 0) { unitBadges.push(`<span class="badge-unit badge-pac-ceil">❄️ 天吊:${subs.ceiling}</span>`); hasPacSub = true; }
     if (subs.wall > 0) { unitBadges.push(`<span class="badge-unit badge-pac-wall">❄️ 壁掛:${subs.wall}</span>`); hasPacSub = true; }
     if (subs.other > 0) { unitBadges.push(`<span class="badge-unit badge-pac-other">❄️ 他PAC:${subs.other}</span>`); hasPacSub = true; }
+    if (subs.unknown > 0) { unitBadges.push(`<span class="badge-unit badge-pac-unk">❄️ 確認中:${subs.unknown}</span>`); hasPacSub = true; }
     if (!hasPacSub && pac > 0) {
       unitBadges.push(`<span class="badge-unit badge-pac">❄️ PAC:${pac}</span>`);
     }
@@ -1862,8 +1926,9 @@ class HVACApp {
       { key: 'wall', label: '❄️ パッケージ (壁掛け)', badgeClass: 'badge-pac-wall', getter: r => r.pacSubtypes?.wall || 0 },
       { key: 'pac_other', label: '❄️ パッケージ (その他)', badgeClass: 'badge-pac-other', getter: r => {
         const s = r.pacSubtypes || {};
-        return s.other || (r.pacCount && !s.cassette && !s.floor && !s.ceiling && !s.wall ? r.pacCount : 0);
+        return s.other || (r.pacCount && !s.cassette && !s.floor && !s.ceiling && !s.wall && !s.unknown ? r.pacCount : 0);
       }},
+      { key: 'pac_unknown', label: '❄️ パッケージ (種別確認中)', badgeClass: 'badge-pac-unk', getter: r => r.pacSubtypes?.unknown || 0 },
       { key: 'hex', label: '🔄 全熱交換器 (HEX)', badgeClass: 'badge-hex', getter: r => r.hexCount || 0 },
       { key: 'fcu', label: '💨 ファンコイル (FCU)', badgeClass: 'badge-fcu', getter: r => r.fcuCount || 0 },
       { key: 'other_eq', label: '⚙️ その他機器 (AHU・ファン等)', badgeClass: 'badge-pac-other', getter: r => (r.otherEquipment ? 1 : 0) }
@@ -2066,7 +2131,8 @@ class HVACApp {
       const cFloor = subs.floor || 0;
       const cCeil = subs.ceiling || 0;
       const cWall = subs.wall || 0;
-      const cOth = subs.other || 0;
+      const cOth = subs.other || (r.pacCount && !cCas && !cFloor && !cCeil && !cWall && !subs.unknown ? r.pacCount : 0);
+      const cUnk = subs.unknown || 0;
 
       let pacHandled = false;
       if (cCas > 0) { items.push({ type: 'パッケージ (天カセ)', count: `${cCas}台`, num: cCas }); pacHandled = true; }
@@ -2074,6 +2140,7 @@ class HVACApp {
       if (cCeil > 0) { items.push({ type: 'パッケージ (天吊り)', count: `${cCeil}台`, num: cCeil }); pacHandled = true; }
       if (cWall > 0) { items.push({ type: 'パッケージ (壁掛け)', count: `${cWall}台`, num: cWall }); pacHandled = true; }
       if (cOth > 0) { items.push({ type: 'パッケージ (その他)', count: `${cOth}台`, num: cOth }); pacHandled = true; }
+      if (cUnk > 0) { items.push({ type: 'パッケージ (種別確認中)', count: `${cUnk}台`, num: cUnk }); pacHandled = true; }
 
       if (!pacHandled && pac > 0) {
         items.push({ type: 'パッケージ (PAC)', count: `${pac}台`, num: pac });
@@ -2148,7 +2215,7 @@ class HVACApp {
     if (mode === 'room_summary') {
       const headers = [
         'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
-        '合計台数', '天カセ', '床置き', '天吊り', '壁掛け', '他PAC', '全熱(HEX)', 'FCU', 'その他機器',
+        '合計台数', '天カセ', '床置き', '天吊り', '壁掛け', '他PAC', '確認中', '全熱(HEX)', 'FCU', 'その他機器',
         '作業に必要なもの', 'アクセス方法', 'フィルター仕様', '機番・系統', '特記事項'
       ];
       const rows = records.map((r, idx) => {
@@ -2157,19 +2224,20 @@ class HVACApp {
         const cFlr = s.floor || 0;
         const cCeil = s.ceiling || 0;
         const cWall = s.wall || 0;
-        const cOth = s.other || (r.pacCount && !cCas && !cFlr && !cCeil && !cWall ? r.pacCount : 0);
+        const cOth = s.other || (r.pacCount && !cCas && !cFlr && !cCeil && !cWall && !s.unknown ? r.pacCount : 0);
+        const cUnk = s.unknown || 0;
         const hex = r.hexCount || 0;
         const fcu = r.fcuCount || 0;
         const tot = r.totalUnits || ((r.pacCount || 0) + hex + fcu);
         return [
           idx + 1, r.park, r.area, r.facility, r.floor || '-', r.room,
-          `${tot}台`, cCas || '-', cFlr || '-', cCeil || '-', cWall || '-', cOth || '-', hex || '-', fcu || '-', r.otherEquipment || '-',
+          `${tot}台`, cCas || '-', cFlr || '-', cCeil || '-', cWall || '-', cOth || '-', cUnk || '-', hex || '-', fcu || '-', r.otherEquipment || '-',
           r.equipment || '-', r.access || '-', r.filterSpec || '-', r.machineNo || '-', r.notes || ''
         ];
       });
       const colWidths = [
         { wch: 5 }, { wch: 8 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 18 },
-        { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 16 },
+        { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 16 },
         { wch: 26 }, { wch: 26 }, { wch: 18 }, { wch: 14 }, { wch: 22 }
       ];
       return { sheetName: '②部屋別まとめリスト', title: '🏢 ② 部屋別まとめリスト (1部屋1行)', headers, rows, colWidths };
@@ -2179,7 +2247,7 @@ class HVACApp {
     if (mode === 'facility_summary') {
       const headers = [
         'No', 'パーク', 'エリア', '施設/アトラクション', '階層',
-        '登録部屋数', '空調機合計', '天カセ計', '床置き計', '天吊り計', '壁掛け計', '全熱(HEX)計', 'FCU計',
+        '登録部屋数', '空調機合計', '天カセ計', '床置き計', '天吊り計', '壁掛け計', '他PAC計', '確認中計', '全熱(HEX)計', 'FCU計',
         '対象部屋一覧', '必要機材まとめ'
       ];
       const map = new Map();
@@ -2188,7 +2256,7 @@ class HVACApp {
         if (!map.has(key)) {
           map.set(key, {
             park: r.park, area: r.area, facility: r.facility, floor: r.floor || '-',
-            roomCount: 0, total: 0, cas: 0, flr: 0, ceil: 0, wall: 0, hex: 0, fcu: 0,
+            roomCount: 0, total: 0, cas: 0, flr: 0, ceil: 0, wall: 0, oth: 0, unk: 0, hex: 0, fcu: 0,
             rooms: [], gears: new Set()
           });
         }
@@ -2199,6 +2267,8 @@ class HVACApp {
         g.flr += (s.floor || 0);
         g.ceil += (s.ceiling || 0);
         g.wall += (s.wall || 0);
+        g.oth += (s.other || (r.pacCount && !s.cassette && !s.floor && !s.ceiling && !s.wall && !s.unknown ? r.pacCount : 0));
+        g.unk += (s.unknown || 0);
         g.hex += (r.hexCount || 0);
         g.fcu += (r.fcuCount || 0);
         g.total += (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0)));
@@ -2209,12 +2279,12 @@ class HVACApp {
       const rows = Array.from(map.values()).map((g, idx) => [
         idx + 1, g.park, g.area, g.facility, g.floor,
         `${g.roomCount}室`, `${g.total}台`,
-        g.cas || '-', g.flr || '-', g.ceil || '-', g.wall || '-', g.hex || '-', g.fcu || '-',
+        g.cas || '-', g.flr || '-', g.ceil || '-', g.wall || '-', g.oth || '-', g.unk || '-', g.hex || '-', g.fcu || '-',
         g.rooms.join(', '), Array.from(g.gears).join(' / ') || '-'
       ]);
       const colWidths = [
         { wch: 5 }, { wch: 8 }, { wch: 18 }, { wch: 24 }, { wch: 8 },
-        { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 11 }, { wch: 9 },
+        { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 11 }, { wch: 9 },
         { wch: 30 }, { wch: 28 }
       ];
       return { sheetName: '③施設・階層別集計', title: '🏰 ③ 施設・階層別 集計表', headers, rows, colWidths };

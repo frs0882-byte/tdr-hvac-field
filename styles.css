@@ -1499,6 +1499,13 @@ body {
   font-weight: 700;
 }
 
+.badge-pac-unk {
+  background-color: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  font-weight: 700;
+}
+
 .badge-hex {
   background-color: rgba(16, 185, 129, 0.2);
   color: #34d399;
@@ -2006,4 +2013,67 @@ body {
   width: 16px;
   height: 16px;
   accent-color: #2563eb;
+}
+
+/* 写真アコーディオン（折りたたみ） */
+.accordion-section {
+  transition: all var(--transition-normal);
+}
+
+.accordion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.accordion-header-left h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.accordion-toggle-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.accordion-header:hover .accordion-toggle-indicator {
+  background-color: rgba(56, 189, 248, 0.22);
+}
+
+.accordion-arrow {
+  font-size: 13px;
+  transition: transform var(--transition-normal);
+}
+
+.accordion-body.collapsed {
+  display: none;
+}
+
+.badge-photo-summary {
+  font-size: 11px;
+  font-weight: 700;
+  color: #34d399;
+  background-color: rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
 }

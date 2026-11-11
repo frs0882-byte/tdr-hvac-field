@@ -242,74 +242,84 @@
             </div>
           </div>
 
-          <!-- 4. 写真の登録 -->
-          <div class="card form-section">
-            <div class="section-title">
-              <span class="num-badge">4</span>
-              <h2>写真の登録</h2>
-            </div>
-            <p class="section-desc">「建物への入口」と「部屋の様子」をそれぞれ専用の枠で確実に撮影・登録できます。</p>
-
-            <!-- 写真枠1: 建物・エリア入口の写真 -->
-            <div class="photo-slot-box mb-3">
-              <div class="slot-header">
-                <span class="slot-title">🚪 ① 建物・エリアの入口写真 <span class="slot-tag">必須推奨</span></span>
-                <span class="slot-desc">最初に建物に入るところ、外扉、周囲の目印など</span>
+          <!-- 4. 写真の登録 (折りたたみ式) -->
+          <div class="card form-section accordion-section" id="photo-section-card">
+            <div class="accordion-header" id="toggle-photo-section-btn" role="button" tabindex="0" title="写真の登録枠を開閉">
+              <div class="accordion-header-left">
+                <span class="num-badge">4</span>
+                <h2>写真の登録 (任意)</h2>
+                <span class="badge-photo-summary hidden" id="photo-total-badge">📸 0枚</span>
               </div>
-              <div class="photo-capture-row mt-1">
-                <label class="btn btn-camera btn-slot">
-                  <span>📸 入口を撮影</span>
-                  <input type="file" id="camera-entrance" accept="image/*" capture="environment" class="file-hidden">
-                </label>
-                <label class="btn btn-album btn-slot">
-                  <span>🖼️ アルバムから選択</span>
-                  <input type="file" id="album-entrance" accept="image/*" class="file-hidden">
-                </label>
-              </div>
-              <div id="entrance-preview-grid" class="photo-grid mt-2">
-                <!-- JSで動的レンダリング -->
+              <div class="accordion-toggle-indicator">
+                <span class="accordion-toggle-text" id="photo-toggle-text">開く</span>
+                <span class="accordion-arrow" id="photo-accordion-arrow">▽</span>
               </div>
             </div>
 
-            <!-- 写真枠2: 部屋・機械室の写真 -->
-            <div class="photo-slot-box mb-3">
-              <div class="slot-header">
-                <span class="slot-title">🏢 ② 部屋・機械室の写真 <span class="slot-tag">必須推奨</span></span>
-                <span class="slot-desc">機械室の扉番号、室内全景、足元の状況など</span>
-              </div>
-              <div class="photo-capture-row mt-1">
-                <label class="btn btn-camera btn-slot">
-                  <span>📸 部屋を撮影</span>
-                  <input type="file" id="camera-room" accept="image/*" capture="environment" class="file-hidden">
-                </label>
-                <label class="btn btn-album btn-slot">
-                  <span>🖼️ アルバムから選択</span>
-                  <input type="file" id="album-room" accept="image/*" class="file-hidden">
-                </label>
-              </div>
-              <div id="room-preview-grid" class="photo-grid mt-2">
-                <!-- JSで動的レンダリング -->
-              </div>
-            </div>
+            <div class="accordion-body collapsed" id="photo-accordion-body">
+              <p class="section-desc mt-2">「建物への入口」と「部屋の様子」をそれぞれ専用の枠で撮影・登録できます。</p>
 
-            <!-- 写真枠3: 対象機・フィルター・その他写真 -->
-            <div class="photo-slot-box">
-              <div class="slot-header">
-                <span class="slot-title">⚙️ ③ 対象機・銘板・注意箇所写真 (任意)</span>
-                <span class="slot-desc">空調機本体、フィルター設置部、型番銘板など (複数枚可)</span>
+              <!-- 写真枠1: 建物・エリア入口の写真 -->
+              <div class="photo-slot-box mb-3">
+                <div class="slot-header">
+                  <span class="slot-title">🚪 ① 建物・エリアの入口写真 <span class="slot-tag">必須推奨</span></span>
+                  <span class="slot-desc">最初に建物に入るところ、外扉、周囲の目印など</span>
+                </div>
+                <div class="photo-capture-row mt-1">
+                  <label class="btn btn-camera btn-slot">
+                    <span>📸 入口を撮影</span>
+                    <input type="file" id="camera-entrance" accept="image/*" capture="environment" class="file-hidden">
+                  </label>
+                  <label class="btn btn-album btn-slot">
+                    <span>🖼️ アルバムから選択</span>
+                    <input type="file" id="album-entrance" accept="image/*" class="file-hidden">
+                  </label>
+                </div>
+                <div id="entrance-preview-grid" class="photo-grid mt-2">
+                  <!-- JSで動的レンダリング -->
+                </div>
               </div>
-              <div class="photo-capture-row mt-1">
-                <label class="btn btn-camera btn-slot">
-                  <span>📸 機器を撮影</span>
-                  <input type="file" id="camera-equipment" accept="image/*" capture="environment" class="file-hidden">
-                </label>
-                <label class="btn btn-album btn-slot">
-                  <span>🖼️ アルバムから選択</span>
-                  <input type="file" id="album-equipment" accept="image/*" multiple class="file-hidden">
-                </label>
+
+              <!-- 写真枠2: 部屋・機械室の写真 -->
+              <div class="photo-slot-box mb-3">
+                <div class="slot-header">
+                  <span class="slot-title">🏢 ② 部屋・機械室の写真 <span class="slot-tag">必須推奨</span></span>
+                  <span class="slot-desc">機械室の扉番号、室内全景、足元の状況など</span>
+                </div>
+                <div class="photo-capture-row mt-1">
+                  <label class="btn btn-camera btn-slot">
+                    <span>📸 部屋を撮影</span>
+                    <input type="file" id="camera-room" accept="image/*" capture="environment" class="file-hidden">
+                  </label>
+                  <label class="btn btn-album btn-slot">
+                    <span>🖼️ アルバムから選択</span>
+                    <input type="file" id="album-room" accept="image/*" class="file-hidden">
+                  </label>
+                </div>
+                <div id="room-preview-grid" class="photo-grid mt-2">
+                  <!-- JSで動的レンダリング -->
+                </div>
               </div>
-              <div id="equipment-preview-grid" class="photo-grid mt-2">
-                <!-- JSで動的レンダリング -->
+
+              <!-- 写真枠3: 対象機・フィルター・その他写真 -->
+              <div class="photo-slot-box">
+                <div class="slot-header">
+                  <span class="slot-title">⚙️ ③ 対象機・銘板・注意箇所写真 (任意)</span>
+                  <span class="slot-desc">空調機本体、フィルター設置部、型番銘板など (複数枚可)</span>
+                </div>
+                <div class="photo-capture-row mt-1">
+                  <label class="btn btn-camera btn-slot">
+                    <span>📸 機器を撮影</span>
+                    <input type="file" id="camera-equipment" accept="image/*" capture="environment" class="file-hidden">
+                  </label>
+                  <label class="btn btn-album btn-slot">
+                    <span>🖼️ アルバムから選択</span>
+                    <input type="file" id="album-equipment" accept="image/*" multiple class="file-hidden">
+                  </label>
+                </div>
+                <div id="equipment-preview-grid" class="photo-grid mt-2">
+                  <!-- JSで動的レンダリング -->
+                </div>
               </div>
             </div>
           </div>
@@ -396,6 +406,19 @@
                     <button type="button" class="btn-step" data-action="dec" data-target="pac-other-count">－</button>
                     <input type="number" id="pac-other-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
                     <button type="button" class="btn-step" data-action="inc" data-target="pac-other-count">＋</button>
+                  </div>
+                </div>
+
+                <!-- PAC (種別確認中) -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">PAC(確認中)</span>
+                    <span class="cell-desc">種別確認中</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-unknown-count">－</button>
+                    <input type="number" id="pac-unknown-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-unknown-count">＋</button>
                   </div>
                 </div>
               </div>
@@ -515,6 +538,8 @@
               <option value="floor">PAC (床置き)</option>
               <option value="ceiling">PAC (天吊り)</option>
               <option value="wall">PAC (壁掛け)</option>
+              <option value="other_pac">PAC (その他)</option>
+              <option value="unknown_pac">PAC (種別確認中)</option>
               <option value="pac_any">PAC (すべて)</option>
               <option value="hex">全熱交換器 (HEX)</option>
               <option value="fcu">ファンコイル (FCU)</option>
