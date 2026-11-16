@@ -305,14 +305,14 @@ class HVACApp {
         this.records = allItems
           .filter(r => r && r.id !== DRAFT_RECORD_ID)
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        this.updateHeaderBadge();
-        this.updateDynamicFilterOptions();
-        this.updateCheckFilterOptions();
-        this.renderRecordsList();
-        this.renderChecklistView();
-        this.renderSpreadsheetPreview();
-        this.renderReportCards();
-        this.updateAllDrumPickers();
+        try { this.updateHeaderBadge(); } catch (e) { console.error(e); }
+        try { this.updateDynamicFilterOptions(); } catch (e) { console.error(e); }
+        try { this.updateCheckFilterOptions(); } catch (e) { console.error(e); }
+        try { this.renderRecordsList(); } catch (e) { console.error(e); }
+        try { this.renderChecklistView(); } catch (e) { console.error(e); }
+        try { this.renderSpreadsheetPreview(); } catch (e) { console.error(e); }
+        try { this.renderReportCards(); } catch (e) { console.error(e); }
+        try { this.updateAllDrumPickers(); } catch (e) { console.error(e); }
         resolve(this.records);
       };
 
@@ -1722,9 +1722,9 @@ class HVACApp {
       const sel = document.getElementById(selectId);
       if (!sel) return;
       const prevVal = sel.value;
-      const uniqueVals = Array.from(new Set(values.filter(v => v && String(v).trim().length > 0)));
+      const uniqueVals = Array.from(new Set(values.filter(v => v !== null && v !== undefined && String(v).trim().length > 0)));
       if (sortFn) uniqueVals.sort(sortFn);
-      else uniqueVals.sort((a, b) => a.localeCompare(b, 'ja'));
+      else uniqueVals.sort((a, b) => String(a).localeCompare(String(b), 'ja'));
 
       sel.innerHTML = `<option value="">${defaultLabel}</option>` +
         uniqueVals.map(v => `<option value="${this.escapeHtml(v)}">${this.escapeHtml(v)}</option>`).join('');
@@ -1739,7 +1739,7 @@ class HVACApp {
       'filter-floor-select',
       '📶 全階層',
       this.records.map(r => r.floor),
-      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || a.localeCompare(b, 'ja')
+      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || String(a).localeCompare(String(b), 'ja')
     );
   }
 
@@ -1814,8 +1814,8 @@ class HVACApp {
         }
 
         if (searchWord) {
-          const targetStr = `${r.resort} ${r.park} ${r.area} ${r.facility} ${r.floor || ''} ${r.room} ${r.equipSummary || ''} ${r.access || ''} ${r.equipment || ''} ${r.filterSpec || ''} ${r.machineNo || ''} ${r.notes || ''}`.toLowerCase();
-          if (!targetStr.includes(searchWord)) return false;
+          const targetStr = this.buildRecordSearchText(r);
+          if (!this.matchesSearchQuery(targetStr, searchWord)) return false;
         }
         return true;
       });
@@ -2779,9 +2779,9 @@ class HVACApp {
       const sel = document.getElementById(selectId);
       if (!sel) return;
       const prevVal = sel.value;
-      const uniqueVals = Array.from(new Set(values.filter(v => v && String(v).trim().length > 0)));
+      const uniqueVals = Array.from(new Set(values.filter(v => v !== null && v !== undefined && String(v).trim().length > 0)));
       if (sortFn) uniqueVals.sort(sortFn);
-      else uniqueVals.sort((a, b) => a.localeCompare(b, 'ja'));
+      else uniqueVals.sort((a, b) => String(a).localeCompare(String(b), 'ja'));
 
       sel.innerHTML = `<option value="">${defaultLabel}</option>` +
         uniqueVals.map(v => `<option value="${this.escapeHtml(v)}">${this.escapeHtml(v)}</option>`).join('');
@@ -2796,7 +2796,7 @@ class HVACApp {
       'check-filter-floor',
       '📶 全階層',
       this.records.map(r => r.floor),
-      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || a.localeCompare(b, 'ja')
+      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || String(a).localeCompare(String(b), 'ja')
     );
   }
 
@@ -2805,15 +2805,11 @@ class HVACApp {
     let list = [...this.records];
 
     const statusFilter = this.checkStatusFilter; // 'all' | 'pending' | 'completed'
-    const searchWord = (document.getElementById('check-search-input')?.value || '').trim().toLowerCase();
-    const filterPark = document.getElementById('check-filter-park')?.value || '';
-    const filterArea = document.getElementById('check-filter-area')?.value || '';
-    const filterFacility = document.getElementById('check-filter-facility')?.value || '';
-    const filterFloor = document.getElementById('check-filter-floor')?.value || '';
-    const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
-    const filterEquip = document.getElementById('check-filter-equipment')?.value || '';
+    const searchInputVal = document.getElementById('check-search-input')?.value || '';
 
     list = list.filter(r => {
+      if (!r) return false;
+
       // 作業ステータス絞り込み (必須要件: 作業完了や未着手で絞る)
       if (statusFilter === 'pending' && r.completed) return false;
       if (statusFilter === 'completed' && !r.completed) return false;
@@ -2849,10 +2845,10 @@ class HVACApp {
         if (!combined.includes(filterEquip)) return false;
       }
 
-      // 検索ワード (部屋名、機番、フィルター仕様、備考、施設名等)
-      if (searchWord) {
-        const targetStr = `${r.resort} ${r.park} ${r.area} ${r.facility} ${r.floor || ''} ${r.room} ${r.equipSummary || ''} ${r.access || ''} ${r.equipment || ''} ${r.filterSpec || ''} ${r.machineNo || ''} ${r.notes || ''}`.toLowerCase();
-        if (!targetStr.includes(searchWord)) return false;
+      // 高度なあいまい・部分一致検索 (ひらがな/カタカナ相互一致、全半角正規化、複数ワードAND一致対応)
+      if (searchInputVal.trim()) {
+        const searchTarget = this.buildRecordSearchText(r);
+        if (!this.matchesSearchQuery(searchTarget, searchInputVal)) return false;
       }
 
       return true;
@@ -2913,8 +2909,8 @@ class HVACApp {
     const progressCountText = document.getElementById('check-progress-count-text');
     const filteredProgressText = document.getElementById('check-filtered-progress-text');
 
-    const totalAll = this.records.length;
-    const completedAll = this.records.filter(r => r.completed).length;
+    const totalAll = (this.records || []).length;
+    const completedAll = (this.records || []).filter(r => r && r.completed).length;
     const pendingAll = totalAll - completedAll;
     const percentAll = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
 
@@ -2933,13 +2929,13 @@ class HVACApp {
       progressCountText.textContent = `全 ${totalAll} 件中 ${completedAll} 件完了 (未着手: ${pendingAll} 件)`;
     }
 
-    // フィルタ適用
+    // フィルタ適用（デフォルトでは全件表示、検索・絞り込み時はあいまい部分一致）
     const filtered = this.getFilteredChecklistRecords();
-    const completedFiltered = filtered.filter(r => r.completed).length;
+    const completedFiltered = filtered.filter(r => r && r.completed).length;
 
     if (filteredProgressText) {
-      if (filtered.length !== totalAll) {
-        const filteredPercent = filtered.length > 0 ? Math.round((completedFiltered / filtered.length) * 100) : 0;
+      if (filtered.length !== totalAll && filtered.length > 0) {
+        const filteredPercent = Math.round((completedFiltered / filtered.length) * 100);
         filteredProgressText.textContent = `絞込中: ${filtered.length}件中 ${completedFiltered}件完了 (${filteredPercent}%)`;
       } else {
         filteredProgressText.textContent = '';
@@ -2947,13 +2943,13 @@ class HVACApp {
     }
 
     if (countText) {
-      countText.textContent = `全 ${this.records.length} 件中 ${filtered.length} 件表示 (完了: ${completedFiltered} 件 / 未着手: ${filtered.length - completedFiltered} 件)`;
+      countText.textContent = `全 ${totalAll} 件中 ${filtered.length} 件表示 (完了: ${completedFiltered} 件 / 未着手: ${filtered.length - completedFiltered} 件)`;
     }
 
     // 状況サマリーバー更新
     this.renderCheckStatsBar(filtered);
 
-    if (this.records.length === 0) {
+    if (totalAll === 0) {
       if (container) container.innerHTML = '';
       if (emptyState) {
         document.getElementById('check-empty-title').textContent = '登録データがありません';
@@ -2967,7 +2963,7 @@ class HVACApp {
       if (container) container.innerHTML = '';
       if (emptyState) {
         document.getElementById('check-empty-title').textContent = '条件に一致する作業データがありません';
-        document.getElementById('check-empty-desc').textContent = 'ステータス切替またはフィルタ条件を変更するか、「条件リセット」を押してください。';
+        document.getElementById('check-empty-desc').textContent = '検索キーワードを変更するか、「条件リセット」を押して全件表示に戻してください。';
         emptyState.classList.remove('hidden');
       }
       return;
@@ -3244,6 +3240,73 @@ class HVACApp {
     this.toastTimer = setTimeout(() => {
       toast.classList.add('hidden');
     }, 2800);
+  }
+
+  // 文字列の高度な正規化（全角英数・半角英数、全角カナ・半角カナ、大文字小文字、ひらがな/カタカナ、記号、スペースの統一）
+  normalizeSearchText(str) {
+    if (!str) return '';
+    return String(str)
+      .normalize('NFKC') // 全角英数・半角カナをUnicode正規化
+      .toLowerCase()
+      // ひらがなをカタカナに統一（例: "ころんびあ" → "コロンビア"）
+      .replace(/[\u3041-\u3096]/g, match => String.fromCharCode(match.charCodeAt(0) + 0x60))
+      // 記号（ドット、中黒、ハイフン、スラッシュ、長音符など）を除去またはスペース化
+      .replace(/[・\.\-\_\/／、，,\s　]+/g, ' ')
+      .trim();
+  }
+
+  // あいまい・部分一致検索判定（スペース区切りでの複数キーワードAND検索、記号・スペース有無の揺れ吸収に対応）
+  matchesSearchQuery(targetString, searchInput) {
+    if (!searchInput) return true;
+    const normTarget = this.normalizeSearchText(targetString);
+    const compactTarget = normTarget.replace(/\s+/g, '');
+    const keywords = this.normalizeSearchText(searchInput).split(/\s+/).filter(Boolean);
+    if (keywords.length === 0) return true;
+    return keywords.every(kw => {
+      const compactKw = kw.replace(/\s+/g, '');
+      return normTarget.includes(kw) || (compactKw && compactTarget.includes(compactKw));
+    });
+  }
+
+  // レコード内の全属性（施設・部屋・階層・機器種別・仕様・機材・アクセス・備考）を網羅した検索テキスト生成
+  buildRecordSearchText(r) {
+    if (!r) return '';
+    const subs = r.pacSubtypes || {};
+    const equipParts = [
+      subs.cassette > 0 ? '天カセ カセット' : '',
+      subs.floor > 0 ? '床置 床置き' : '',
+      subs.ceiling > 0 ? '天吊 天吊り 天井吊' : '',
+      subs.wall > 0 ? '壁掛 壁掛け' : '',
+      subs.other > 0 ? '他pac その他pac' : '',
+      subs.unknown > 0 ? 'pac種別確認中 pac確認中 pac' : '',
+      (r.hexCount > 0) ? '全熱 全熱交換器 ロスナイ ベンティエール hex' : '',
+      (r.fcuCount > 0) ? 'fcu ファンコイル ファンコイルユニット' : '',
+      r.otherEquipment || '',
+      r.equipSummary || ''
+    ].filter(Boolean).join(' ');
+
+    const parkKeywords = {
+      'TDS': 'tds シー ディズニーシー disneysea',
+      'TDL': 'tdl ランド ディズニーランド disneyland',
+      'HOTEL': 'hotel ホテル ミラコスタ アンバサダー ファンタジースプリングスホテル',
+      'OTHER': 'other その他'
+    }[r.park] || '';
+
+    return [
+      r.resort || '',
+      r.park || '',
+      parkKeywords,
+      r.area || '',
+      r.facility || '',
+      r.floor || '',
+      r.room || '',
+      equipParts,
+      r.equipment || '',
+      r.access || '',
+      r.filterSpec || '',
+      r.machineNo || '',
+      r.notes || ''
+    ].join(' ');
   }
 
   getFormattedDate() {
