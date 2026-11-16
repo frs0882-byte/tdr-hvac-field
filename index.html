@@ -43,6 +43,10 @@
         <span class="tab-icon">📋</span>
         <span class="tab-label">階層リスト</span>
       </button>
+      <button class="tab-btn" data-tab="tab-check">
+        <span class="tab-icon">✅</span>
+        <span class="tab-label">作業チェック</span>
+      </button>
       <button class="tab-btn" data-tab="tab-export">
         <span class="tab-icon">📊</span>
         <span class="tab-label">シート出力</span>
@@ -589,6 +593,11 @@
               <option value="has_photo">📷 写真あり</option>
               <option value="missing_photo">⚠️ 未撮影枠あり</option>
             </select>
+            <select id="filter-work-status-select" class="form-select select-sm">
+              <option value="">✅ 作業: すべて</option>
+              <option value="pending">⏳ 未着手のみ</option>
+              <option value="completed">✅ 完了のみ</option>
+            </select>
           </div>
 
           <!-- 並べ替え（ソート）＆フィルタリセット行 -->
@@ -632,6 +641,160 @@
           <h3>登録データがありません</h3>
           <p>「現場入力」タブから各所の情報を入力してください。<br>入力したデータはスマホ内に自動保存されます。</p>
           <button type="button" class="btn btn-primary mt-3" onclick="app.switchTab('tab-input')">現場入力を始める</button>
+        </div>
+      </section>
+
+      <!-- ================= タブ2.5: 作業チェックリスト ================= -->
+      <section id="tab-check" class="tab-pane">
+        <!-- 作業進捗ダッシュボード -->
+        <div class="card check-dashboard-card">
+          <div class="check-dashboard-header">
+            <div class="check-dashboard-title">
+              <span class="num-badge">✅</span>
+              <div>
+                <h2>作業チェックリスト</h2>
+                <p class="section-desc">現場巡回・点検・フィルター作業のチェック管理</p>
+              </div>
+            </div>
+            <div class="check-summary-badge" id="check-overall-percent-badge">0% 完了</div>
+          </div>
+
+          <!-- プログレスバー -->
+          <div class="progress-container mt-2">
+            <div class="progress-bar-bg">
+              <div id="check-progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+            <div class="progress-labels">
+              <span id="check-progress-count-text">全 0 件中 0 件完了 (未着手 0 件)</span>
+              <span id="check-filtered-progress-text" class="text-muted"></span>
+            </div>
+          </div>
+
+          <!-- 一括操作・クイックツールバー -->
+          <div class="check-quick-actions mt-3">
+            <button type="button" id="check-batch-complete-btn" class="btn btn-sm btn-action">
+              <span>✔️ 表示中を一括完了にする</span>
+            </button>
+            <button type="button" id="check-batch-reset-btn" class="btn btn-sm btn-sub">
+              <span>🔄 表示中を未着手に戻す</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- フィルタ・絞り込みカード -->
+        <div class="card check-filter-card">
+          <!-- 作業ステータス切替タブボタングループ (必須要件: 作業完了や未着手で絞る) -->
+          <div class="form-group mb-2">
+            <label class="form-label" style="font-size:12px; margin-bottom:6px;">作業ステータス絞り込み:</label>
+            <div class="status-tab-group" id="check-status-tabs">
+              <button type="button" class="status-tab-btn active" data-status="all">
+                <span>🔘 すべて</span>
+                <span class="status-tab-count" id="status-count-all">0</span>
+              </button>
+              <button type="button" class="status-tab-btn" data-status="pending">
+                <span>⏳ 未着手</span>
+                <span class="status-tab-count status-pending-badge" id="status-count-pending">0</span>
+              </button>
+              <button type="button" class="status-tab-btn" data-status="completed">
+                <span>✅ 完了</span>
+                <span class="status-tab-count status-completed-badge" id="status-count-completed">0</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 検索バー -->
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="check-search-input" class="form-input search-input" placeholder="部屋名・機番・フィルター仕様・メモで検索..." autocomplete="off">
+            <button type="button" id="check-clear-search-btn" class="clear-search-btn hidden">✕</button>
+          </div>
+
+          <!-- フィルタ第1行: パーク・エリア・施設 -->
+          <div class="filter-grid mt-2">
+            <select id="check-filter-park" class="form-select select-sm">
+              <option value="">🏰 全パーク</option>
+              <option value="TDS">TDS (シー)</option>
+              <option value="TDL">TDL (ランド)</option>
+              <option value="HOTEL">ホテル</option>
+              <option value="OTHER">その他</option>
+            </select>
+            <select id="check-filter-area" class="form-select select-sm">
+              <option value="">🗺️ 全エリア</option>
+            </select>
+            <select id="check-filter-facility" class="form-select select-sm">
+              <option value="">🏢 全施設</option>
+            </select>
+          </div>
+
+          <!-- フィルタ第2行: 階層・機種・機材 -->
+          <div class="filter-grid mt-2">
+            <select id="check-filter-floor" class="form-select select-sm">
+              <option value="">📶 全階層</option>
+            </select>
+            <select id="check-filter-unit-type" class="form-select select-sm">
+              <option value="">❄️ 全空調機種</option>
+              <option value="cassette">PAC (天カセ)</option>
+              <option value="floor">PAC (床置き)</option>
+              <option value="ceiling">PAC (天吊り)</option>
+              <option value="wall">PAC (壁掛け)</option>
+              <option value="other_pac">PAC (その他)</option>
+              <option value="unknown_pac">PAC (種別確認中)</option>
+              <option value="pac_any">PAC (すべて)</option>
+              <option value="hex">全熱交換器 (HEX)</option>
+              <option value="fcu">ファンコイル (FCU)</option>
+              <option value="other">その他機器</option>
+            </select>
+            <select id="check-filter-equipment" class="form-select select-sm">
+              <option value="">🪜 全機材・脚立</option>
+              <option value="9尺">9尺脚立</option>
+              <option value="8尺">8尺脚立</option>
+              <option value="7尺">7尺脚立</option>
+              <option value="6尺">6尺脚立</option>
+              <option value="4尺">4尺脚立</option>
+              <option value="フィルター">フィルター</option>
+              <option value="バックステージ">バックステージ</option>
+              <option value="オンステージ">オンステージ</option>
+            </select>
+          </div>
+
+          <!-- 並べ替え ＆ リセット -->
+          <div class="sort-reset-row mt-2">
+            <div class="sort-box">
+              <span class="sort-label">⇅ 並替:</span>
+              <select id="check-sort-order" class="form-select select-sm">
+                <option value="hierarchy">🏰 巡回順 (パーク＞エリア＞施設＞階層)</option>
+                <option value="pending-first">⏳ 未着手を優先表示</option>
+                <option value="completed-first">✅ 完了を優先表示</option>
+                <option value="floor-asc">📶 階層順（下の階から上へ）</option>
+                <option value="facility-asc">🏢 施設名順（五十音順）</option>
+                <option value="date-desc">🕐 登録日時（新しい順）</option>
+              </select>
+            </div>
+            <button type="button" id="check-reset-filters-btn" class="btn btn-sub btn-sm">🔄 条件リセット</button>
+          </div>
+        </div>
+
+        <!-- リアルタイム状況サマリーバー -->
+        <div id="check-stats-bar" class="filtered-stats-bar">
+          <!-- JSで動的集計 -->
+        </div>
+
+        <!-- 件数バー -->
+        <div class="list-summary-bar">
+          <span id="check-list-count-text">全 0 件中 0 件表示</span>
+          <button type="button" id="check-scroll-top-btn" class="btn-link">↑ 先頭へ</button>
+        </div>
+
+        <!-- チェックリスト本体コンテナ -->
+        <div id="check-list-container" class="checklist-items-container">
+          <!-- JSで動的レンダリング -->
+        </div>
+
+        <!-- 空表示 -->
+        <div id="check-empty-state" class="empty-state hidden">
+          <div class="empty-icon">✅</div>
+          <h3 id="check-empty-title">該当する作業データがありません</h3>
+          <p id="check-empty-desc">条件を変更するか、「現場入力」からデータを登録してください。</p>
         </div>
       </section>
 

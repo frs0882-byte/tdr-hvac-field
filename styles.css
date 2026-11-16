@@ -137,20 +137,24 @@ body {
   align-items: center;
   justify-content: center;
   flex: 1;
+  min-width: 0;
   height: 100%;
   cursor: pointer;
   transition: all 0.2s;
-  padding: 4px 0;
+  padding: 3px 1px;
 }
 
 .tab-btn .tab-icon {
-  font-size: 20px;
+  font-size: 19px;
+  line-height: 1.1;
 }
 
 .tab-btn .tab-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   margin-top: 2px;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
 }
 
 .tab-btn.active {
@@ -2121,3 +2125,464 @@ body {
   font-size: 14px;
   padding: 8px;
 }
+
+/* ==========================================================================
+   作業チェックリスト (Work Checklist) スタイル
+   ========================================================================== */
+
+/* 作業ダッシュボードカード */
+.check-dashboard-card {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(16, 185, 129, 0.12));
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.check-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.check-dashboard-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.check-dashboard-title h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.check-dashboard-title p {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.check-summary-badge {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.4);
+  white-space: nowrap;
+}
+
+/* プログレスバー */
+.progress-container {
+  width: 100%;
+}
+
+.progress-bar-bg {
+  width: 100%;
+  height: 10px;
+  background: rgba(30, 41, 59, 0.8);
+  border-radius: 9999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399, #38bdf8);
+  border-radius: 9999px;
+  transition: width 0.4s ease-out;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.5);
+}
+
+.progress-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+/* 一括操作バー */
+.check-quick-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.check-quick-actions .btn {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 7px 4px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* 作業ステータス切替トグル */
+.status-tab-group {
+  display: flex;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+
+.status-tab-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.status-tab-btn:hover {
+  color: #f1f5f9;
+}
+
+.status-tab-btn.active {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.status-tab-btn[data-status="pending"].active {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.status-tab-btn[data-status="completed"].active {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.status-tab-count {
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font-weight: 700;
+}
+
+.status-pending-badge {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+.status-completed-badge {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+/* チェックリスト一覧アイテム */
+.checklist-items-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.check-item-card {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.check-item-card:hover {
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+/* 完了済みの行カード */
+.check-item-card.is-completed {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.check-item-card.is-completed::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #10b981;
+}
+
+/* 特大チェックボタン（現場の指先タップに最適） */
+.check-box-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 2px solid rgba(148, 163, 184, 0.5);
+  color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 22px;
+  font-weight: 900;
+  margin-top: 2px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.check-box-btn:active {
+  transform: scale(0.92);
+}
+
+.check-item-card.is-completed .check-box-btn {
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+}
+
+/* チェック行のメイン本文 */
+.check-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.check-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.check-location-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.check-status-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.check-status-tag.pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.check-status-tag.completed {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.check-room-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 6px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.35;
+}
+
+.check-item-card.is-completed .check-room-title {
+  color: #e2e8f0;
+}
+
+/* 現場仕様バッジ群 */
+.check-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.check-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.check-tag-equip {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.check-tag-units {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  font-weight: 700;
+}
+
+.check-tag-filter {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  font-weight: 700;
+}
+
+.check-tag-gear {
+  background: rgba(249, 115, 22, 0.15);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+.check-tag-access {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+/* 備考・特記事項ボックス */
+.check-notes-box {
+  background: rgba(15, 23, 42, 0.5);
+  border-left: 3px solid #f59e0b;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #e2e8f0;
+  border-radius: 0 4px 4px 0;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+/* 写真サムネイル行 */
+.check-photos-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+}
+
+.check-photo-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.check-photo-thumb:hover {
+  transform: scale(1.05);
+}
+
+/* 作業完了日時ラベル */
+.check-completed-meta {
+  font-size: 11px;
+  color: #10b981;
+  margin-top: 4px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 階層リスト用ステータスバッジ */
+.badge-work-done {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.badge-work-pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* スマホ小型画面（iPhone SE / mini / 375px〜390px）向けレスポンシブ最適化 */
+@media (max-width: 400px) {
+  .tab-nav {
+    height: 56px;
+  }
+  .tab-btn {
+    padding: 2px 0;
+  }
+  .tab-btn .tab-icon {
+    font-size: 17px;
+  }
+  .tab-btn .tab-label {
+    font-size: 9.5px;
+    letter-spacing: -0.3px;
+  }
+  .status-tab-btn {
+    font-size: 11px;
+    padding: 7px 2px;
+    gap: 3px;
+  }
+  .status-tab-count {
+    font-size: 10px;
+    padding: 1px 4px;
+  }
+  .check-box-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+    border-radius: 8px;
+  }
+  .check-room-title {
+    font-size: 15px;
+  }
+  .check-tag {
+    font-size: 10.5px;
+    padding: 2px 6px;
+  }
+  .check-quick-actions .btn {
+    font-size: 11px;
+    padding: 6px 3px;
+  }
+}
+
+

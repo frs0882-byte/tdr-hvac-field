@@ -42,6 +42,9 @@ class HVACApp {
       equipment: false
     };
 
+    // 作業チェックリストの状態
+    this.checkStatusFilter = 'all'; // 'all' | 'pending' | 'completed'
+
     // ユーザー自身が管理するキャプションデータ（初期デフォルトは全てなし・空配列）
     this.candidates = this.loadCandidates();
   }
@@ -304,7 +307,9 @@ class HVACApp {
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         this.updateHeaderBadge();
         this.updateDynamicFilterOptions();
+        this.updateCheckFilterOptions();
         this.renderRecordsList();
+        this.renderChecklistView();
         this.renderSpreadsheetPreview();
         this.renderReportCards();
         this.updateAllDrumPickers();
@@ -848,6 +853,7 @@ class HVACApp {
       'filter-unit-type-select',
       'filter-equipment-select',
       'filter-photo-select',
+      'filter-work-status-select',
       'sort-order-select'
     ].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => {
@@ -867,7 +873,8 @@ class HVACApp {
         'filter-floor-select',
         'filter-unit-type-select',
         'filter-equipment-select',
-        'filter-photo-select'
+        'filter-photo-select',
+        'filter-work-status-select'
       ].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
@@ -879,8 +886,80 @@ class HVACApp {
       this.showToast('🔄 フィルタ・並べ替え条件をリセットしました');
     });
 
-    document.getElementById('scroll-to-top-btn').addEventListener('click', () => {
+    document.getElementById('scroll-to-top-btn')?.addEventListener('click', () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // ================= 作業チェックリスト イベント登録 =================
+    // 作業ステータス切替タブ (すべて / 未着手 / 完了)
+    document.querySelectorAll('#check-status-tabs .status-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#check-status-tabs .status-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.checkStatusFilter = btn.dataset.status || 'all';
+        this.renderChecklistView();
+      });
+    });
+
+    // 作業チェック検索
+    document.getElementById('check-search-input')?.addEventListener('input', (e) => {
+      document.getElementById('check-clear-search-btn')?.classList.toggle('hidden', !e.target.value);
+      this.renderChecklistView();
+    });
+    document.getElementById('check-clear-search-btn')?.addEventListener('click', () => {
+      const input = document.getElementById('check-search-input');
+      if (input) input.value = '';
+      document.getElementById('check-clear-search-btn')?.classList.add('hidden');
+      this.renderChecklistView();
+    });
+
+    // 作業チェック フィルタ・ソート
+    [
+      'check-filter-park',
+      'check-filter-area',
+      'check-filter-facility',
+      'check-filter-floor',
+      'check-filter-unit-type',
+      'check-filter-equipment',
+      'check-sort-order'
+    ].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        this.renderChecklistView();
+      });
+    });
+
+    // 作業チェック フィルタ条件クリア
+    document.getElementById('check-reset-filters-btn')?.addEventListener('click', () => {
+      const input = document.getElementById('check-search-input');
+      if (input) input.value = '';
+      document.getElementById('check-clear-search-btn')?.classList.add('hidden');
+      [
+        'check-filter-park',
+        'check-filter-area',
+        'check-filter-facility',
+        'check-filter-floor',
+        'check-filter-unit-type',
+        'check-filter-equipment'
+      ].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      const sortEl = document.getElementById('check-sort-order');
+      if (sortEl) sortEl.value = 'hierarchy';
+      this.renderChecklistView();
+      this.showToast('🔄 作業チェックの絞り込み条件をリセットしました');
+    });
+
+    document.getElementById('check-scroll-top-btn')?.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // 一括操作ボタン
+    document.getElementById('check-batch-complete-btn')?.addEventListener('click', () => {
+      this.batchSetChecklistComplete(true);
+    });
+    document.getElementById('check-batch-reset-btn')?.addEventListener('click', () => {
+      this.batchSetChecklistComplete(false);
     });
 
     // シート出力タブ: まとめ方（4種類のシート形式）切替
@@ -1674,7 +1753,8 @@ class HVACApp {
       'filter-floor-select',
       'filter-unit-type-select',
       'filter-equipment-select',
-      'filter-photo-select'
+      'filter-photo-select',
+      'filter-work-status-select'
     ];
     return !!searchWord || filterIds.some(id => !!(document.getElementById(id)?.value));
   }
@@ -1692,8 +1772,12 @@ class HVACApp {
       const filterUnitType = document.getElementById('filter-unit-type-select')?.value || '';
       const filterEquip = document.getElementById('filter-equipment-select')?.value || '';
       const filterPhoto = document.getElementById('filter-photo-select')?.value || '';
+      const filterWorkStatus = document.getElementById('filter-work-status-select')?.value || '';
 
       list = list.filter(r => {
+        if (filterWorkStatus === 'pending' && r.completed) return false;
+        if (filterWorkStatus === 'completed' && !r.completed) return false;
+
         if (filterPark && r.park !== filterPark) return false;
         if (filterArea && r.area !== filterArea) return false;
         if (filterFacility && r.facility !== filterFacility) return false;
@@ -1926,12 +2010,17 @@ class HVACApp {
       </div>
     ` : '';
 
+    const workBadge = r.completed
+      ? `<span class="badge-work-done">✅ 作業完了</span>`
+      : `<span class="badge-work-pending">⏳ 未着手</span>`;
+
     return `
-      <div class="record-card">
+      <div class="record-card ${r.completed ? 'is-completed' : ''}">
         <div class="card-header-path">
           <div class="path-tag-row">
             <span class="park-tag ${parkClass}">${r.park}</span>
             <span class="area-tag">${this.escapeHtml(r.area || 'エリア未設定')}</span>
+            ${workBadge}
           </div>
           <div class="facility-title">${this.escapeHtml(r.facility || '施設未設定')}</div>
           <div class="room-highlight">📍 ${r.floor ? `${this.escapeHtml(r.floor)} / ` : ''}${this.escapeHtml(r.room)}</div>
@@ -2307,6 +2396,8 @@ class HVACApp {
       items.forEach((item) => {
         expanded.push({
           no: no++,
+          completed: !!r.completed,
+          completedAt: r.completedAt || null,
           park: r.park,
           area: r.area,
           facility: r.facility,
@@ -2335,17 +2426,20 @@ class HVACApp {
   buildSheetDataset(mode, sourceRecords = null) {
     const records = sourceRecords || this.getTargetRecordsForExport();
 
-    // ① 機器別詳細リスト（18列・行分割）
+    // ① 機器別詳細リスト（20列・作業状況列付）
     if (mode === 'expanded') {
       const exp = this.getExpandedRows(records);
       const headers = [
-        'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
+        'No', '作業状況', '完了日時', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
         '空調機種別', '台数', '作業に必要なもの', 'アクセス方法',
         '建物入口写真', '部屋写真', '機器写真',
         'フィルター仕様', '機番・系統', '特記事項', '階層フルパス', '登録日時'
       ];
       const rows = exp.map(r => [
-        r.no, r.park, r.area, r.facility, r.floor || '-', r.room,
+        r.no,
+        r.completed ? '完了' : '未着手',
+        r.completedAt ? new Date(r.completedAt).toLocaleString('ja-JP') : '-',
+        r.park, r.area, r.facility, r.floor || '-', r.room,
         r.equipType, r.equipCount, r.equipment || '-', r.access || '-',
         r.entrancePhotos.length > 0 ? `あり(${r.entrancePhotos.length}枚)` : 'なし',
         r.roomPhotos.length > 0 ? `あり(${r.roomPhotos.length}枚)` : 'なし',
@@ -2354,17 +2448,17 @@ class HVACApp {
         r.fullPath, new Date(r.createdAt).toLocaleString('ja-JP')
       ]);
       const colWidths = [
-        { wch: 5 }, { wch: 8 }, { wch: 20 }, { wch: 24 }, { wch: 8 }, { wch: 18 },
+        { wch: 5 }, { wch: 10 }, { wch: 18 }, { wch: 8 }, { wch: 20 }, { wch: 24 }, { wch: 8 }, { wch: 18 },
         { wch: 20 }, { wch: 9 }, { wch: 28 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
         { wch: 20 }, { wch: 14 }, { wch: 24 }, { wch: 42 }, { wch: 18 }
       ];
-      return { sheetName: '①機器別詳細リスト', title: '📋 ① 機器別詳細リスト (18列)', headers, rows, colWidths };
+      return { sheetName: '①機器別詳細リスト', title: '📋 ① 機器別詳細リスト (作業状況付・20列)', headers, rows, colWidths };
     }
 
-    // ② 部屋別まとめリスト（1部屋1行・機種別台数横並び）
+    // ② 部屋別まとめリスト（1部屋1行・作業状況列付）
     if (mode === 'room_summary') {
       const headers = [
-        'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
+        'No', '作業状況', '完了日時', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
         '合計台数', '天カセ', '床置き', '天吊り', '壁掛け', '他PAC', '確認中', '全熱(HEX)', 'FCU', 'その他機器',
         '作業に必要なもの', 'アクセス方法', 'フィルター仕様', '機番・系統', '特記事項'
       ];
@@ -2380,17 +2474,20 @@ class HVACApp {
         const fcu = r.fcuCount || 0;
         const tot = r.totalUnits || ((r.pacCount || 0) + hex + fcu);
         return [
-          idx + 1, r.park, r.area, r.facility, r.floor || '-', r.room,
+          idx + 1,
+          r.completed ? '完了' : '未着手',
+          r.completedAt ? new Date(r.completedAt).toLocaleString('ja-JP') : '-',
+          r.park, r.area, r.facility, r.floor || '-', r.room,
           `${tot}台`, cCas || '-', cFlr || '-', cCeil || '-', cWall || '-', cOth || '-', cUnk || '-', hex || '-', fcu || '-', r.otherEquipment || '-',
           r.equipment || '-', r.access || '-', r.filterSpec || '-', r.machineNo || '-', r.notes || ''
         ];
       });
       const colWidths = [
-        { wch: 5 }, { wch: 8 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 18 },
+        { wch: 5 }, { wch: 10 }, { wch: 18 }, { wch: 8 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 18 },
         { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 16 },
         { wch: 26 }, { wch: 26 }, { wch: 18 }, { wch: 14 }, { wch: 22 }
       ];
-      return { sheetName: '②部屋別まとめリスト', title: '🏢 ② 部屋別まとめリスト (1部屋1行)', headers, rows, colWidths };
+      return { sheetName: '②部屋別まとめリスト', title: '🏢 ② 部屋別まとめリスト (作業状況付・1部屋1行)', headers, rows, colWidths };
     }
 
     // ③ 施設・階層別 集計表
@@ -2675,6 +2772,371 @@ class HVACApp {
     e.target.value = '';
   }
 
+  // ================= 8.5. 作業チェックリスト (Checklist) ロジック =================
+  // 作業チェックリスト用のフィルタ選択肢を動的生成
+  updateCheckFilterOptions() {
+    const populateSelect = (selectId, defaultLabel, values, sortFn) => {
+      const sel = document.getElementById(selectId);
+      if (!sel) return;
+      const prevVal = sel.value;
+      const uniqueVals = Array.from(new Set(values.filter(v => v && String(v).trim().length > 0)));
+      if (sortFn) uniqueVals.sort(sortFn);
+      else uniqueVals.sort((a, b) => a.localeCompare(b, 'ja'));
+
+      sel.innerHTML = `<option value="">${defaultLabel}</option>` +
+        uniqueVals.map(v => `<option value="${this.escapeHtml(v)}">${this.escapeHtml(v)}</option>`).join('');
+      if (prevVal && uniqueVals.includes(prevVal)) {
+        sel.value = prevVal;
+      }
+    };
+
+    populateSelect('check-filter-area', '🗺️ 全エリア', this.records.map(r => r.area));
+    populateSelect('check-filter-facility', '🏢 全施設', this.records.map(r => r.facility));
+    populateSelect(
+      'check-filter-floor',
+      '📶 全階層',
+      this.records.map(r => r.floor),
+      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || a.localeCompare(b, 'ja')
+    );
+  }
+
+  // 作業チェック用フィルタ＆ソート済みレコード配列取得
+  getFilteredChecklistRecords() {
+    let list = [...this.records];
+
+    const statusFilter = this.checkStatusFilter; // 'all' | 'pending' | 'completed'
+    const searchWord = (document.getElementById('check-search-input')?.value || '').trim().toLowerCase();
+    const filterPark = document.getElementById('check-filter-park')?.value || '';
+    const filterArea = document.getElementById('check-filter-area')?.value || '';
+    const filterFacility = document.getElementById('check-filter-facility')?.value || '';
+    const filterFloor = document.getElementById('check-filter-floor')?.value || '';
+    const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
+    const filterEquip = document.getElementById('check-filter-equipment')?.value || '';
+
+    list = list.filter(r => {
+      // 作業ステータス絞り込み (必須要件: 作業完了や未着手で絞る)
+      if (statusFilter === 'pending' && r.completed) return false;
+      if (statusFilter === 'completed' && !r.completed) return false;
+
+      // パーク・エリア・施設・階層
+      if (filterPark && r.park !== filterPark) return false;
+      if (filterArea && r.area !== filterArea) return false;
+      if (filterFacility && r.facility !== filterFacility) return false;
+      if (filterFloor && (r.floor || '') !== filterFloor) return false;
+
+      // 空調機種
+      if (filterUnitType) {
+        const subs = r.pacSubtypes || {};
+        const pac = r.pacCount || 0;
+        const hex = r.hexCount || 0;
+        const fcu = r.fcuCount || 0;
+        const other = (r.otherEquipment || '').trim();
+        if (filterUnitType === 'cassette' && !(subs.cassette > 0)) return false;
+        if (filterUnitType === 'floor' && !(subs.floor > 0)) return false;
+        if (filterUnitType === 'ceiling' && !(subs.ceiling > 0)) return false;
+        if (filterUnitType === 'wall' && !(subs.wall > 0)) return false;
+        if (filterUnitType === 'other_pac' && !(subs.other > 0)) return false;
+        if (filterUnitType === 'unknown_pac' && !(subs.unknown > 0)) return false;
+        if (filterUnitType === 'pac_any' && !(pac > 0 || (subs.cassette || 0) + (subs.floor || 0) + (subs.ceiling || 0) + (subs.wall || 0) + (subs.other || 0) + (subs.unknown || 0) > 0)) return false;
+        if (filterUnitType === 'hex' && !(hex > 0)) return false;
+        if (filterUnitType === 'fcu' && !(fcu > 0)) return false;
+        if (filterUnitType === 'other' && !other) return false;
+      }
+
+      // 機材・脚立・アクセス
+      if (filterEquip) {
+        const combined = `${r.equipment || ''} ${r.access || ''}`;
+        if (!combined.includes(filterEquip)) return false;
+      }
+
+      // 検索ワード (部屋名、機番、フィルター仕様、備考、施設名等)
+      if (searchWord) {
+        const targetStr = `${r.resort} ${r.park} ${r.area} ${r.facility} ${r.floor || ''} ${r.room} ${r.equipSummary || ''} ${r.access || ''} ${r.equipment || ''} ${r.filterSpec || ''} ${r.machineNo || ''} ${r.notes || ''}`.toLowerCase();
+        if (!targetStr.includes(searchWord)) return false;
+      }
+
+      return true;
+    });
+
+    // 並べ替え
+    const sortOrder = document.getElementById('check-sort-order')?.value || 'hierarchy';
+    const parkRank = { TDS: 1, TDL: 2, HOTEL: 3, OTHER: 4 };
+
+    list.sort((a, b) => {
+      if (sortOrder === 'pending-first') {
+        const compA = a.completed ? 1 : 0;
+        const compB = b.completed ? 1 : 0;
+        if (compA !== compB) return compA - compB; // 未着手(0)が先
+      } else if (sortOrder === 'completed-first') {
+        const compA = a.completed ? 1 : 0;
+        const compB = b.completed ? 1 : 0;
+        if (compA !== compB) return compB - compA; // 完了(1)が先
+      } else if (sortOrder === 'date-desc') {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      } else if (sortOrder === 'facility-asc') {
+        const facCmp = (a.facility || '').localeCompare(b.facility || '', 'ja');
+        if (facCmp !== 0) return facCmp;
+        const flCmp = this.parseFloorOrder(a.floor) - this.parseFloorOrder(b.floor);
+        if (flCmp !== 0) return flCmp;
+        return (a.room || '').localeCompare(b.room || '', 'ja');
+      } else if (sortOrder === 'floor-asc') {
+        const flCmp = this.parseFloorOrder(a.floor) - this.parseFloorOrder(b.floor);
+        if (flCmp !== 0) return flCmp;
+        const facCmp = (a.facility || '').localeCompare(b.facility || '', 'ja');
+        if (facCmp !== 0) return facCmp;
+        return (a.room || '').localeCompare(b.room || '', 'ja');
+      }
+
+      // デフォルト: hierarchy (巡回順: パーク ＞ エリア ＞ 施設 ＞ 階層 ＞ 部屋)
+      const pa = parkRank[a.park] || 9;
+      const pb = parkRank[b.park] || 9;
+      if (pa !== pb) return pa - pb;
+      const areaCmp = (a.area || '').localeCompare(b.area || '', 'ja');
+      if (areaCmp !== 0) return areaCmp;
+      const facCmp = (a.facility || '').localeCompare(b.facility || '', 'ja');
+      if (facCmp !== 0) return facCmp;
+      const flCmp = this.parseFloorOrder(a.floor) - this.parseFloorOrder(b.floor);
+      if (flCmp !== 0) return flCmp;
+      return (a.room || '').localeCompare(b.room || '', 'ja');
+    });
+
+    return list;
+  }
+
+  // 作業チェックリスト画面のレンダリング
+  renderChecklistView() {
+    const container = document.getElementById('check-list-container');
+    const emptyState = document.getElementById('check-empty-state');
+    const countText = document.getElementById('check-list-count-text');
+    const percentBadge = document.getElementById('check-overall-percent-badge');
+    const progressFill = document.getElementById('check-progress-bar-fill');
+    const progressCountText = document.getElementById('check-progress-count-text');
+    const filteredProgressText = document.getElementById('check-filtered-progress-text');
+
+    const totalAll = this.records.length;
+    const completedAll = this.records.filter(r => r.completed).length;
+    const pendingAll = totalAll - completedAll;
+    const percentAll = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
+
+    // ステータスタブの件数バッジ更新
+    const countAllEl = document.getElementById('status-count-all');
+    const countPendingEl = document.getElementById('status-count-pending');
+    const countCompletedEl = document.getElementById('status-count-completed');
+    if (countAllEl) countAllEl.textContent = totalAll;
+    if (countPendingEl) countPendingEl.textContent = pendingAll;
+    if (countCompletedEl) countCompletedEl.textContent = completedAll;
+
+    // 全体進捗バー更新
+    if (percentBadge) percentBadge.textContent = `${percentAll}% 完了`;
+    if (progressFill) progressFill.style.width = `${percentAll}%`;
+    if (progressCountText) {
+      progressCountText.textContent = `全 ${totalAll} 件中 ${completedAll} 件完了 (未着手: ${pendingAll} 件)`;
+    }
+
+    // フィルタ適用
+    const filtered = this.getFilteredChecklistRecords();
+    const completedFiltered = filtered.filter(r => r.completed).length;
+
+    if (filteredProgressText) {
+      if (filtered.length !== totalAll) {
+        const filteredPercent = filtered.length > 0 ? Math.round((completedFiltered / filtered.length) * 100) : 0;
+        filteredProgressText.textContent = `絞込中: ${filtered.length}件中 ${completedFiltered}件完了 (${filteredPercent}%)`;
+      } else {
+        filteredProgressText.textContent = '';
+      }
+    }
+
+    if (countText) {
+      countText.textContent = `全 ${this.records.length} 件中 ${filtered.length} 件表示 (完了: ${completedFiltered} 件 / 未着手: ${filtered.length - completedFiltered} 件)`;
+    }
+
+    // 状況サマリーバー更新
+    this.renderCheckStatsBar(filtered);
+
+    if (this.records.length === 0) {
+      if (container) container.innerHTML = '';
+      if (emptyState) {
+        document.getElementById('check-empty-title').textContent = '登録データがありません';
+        document.getElementById('check-empty-desc').textContent = '「現場入力」タブから各所の情報を入力してください。';
+        emptyState.classList.remove('hidden');
+      }
+      return;
+    }
+
+    if (filtered.length === 0) {
+      if (container) container.innerHTML = '';
+      if (emptyState) {
+        document.getElementById('check-empty-title').textContent = '条件に一致する作業データがありません';
+        document.getElementById('check-empty-desc').textContent = 'ステータス切替またはフィルタ条件を変更するか、「条件リセット」を押してください。';
+        emptyState.classList.remove('hidden');
+      }
+      return;
+    }
+
+    if (emptyState) emptyState.classList.add('hidden');
+
+    if (container) {
+      container.innerHTML = filtered.map(r => this.renderChecklistItem(r)).join('');
+    }
+  }
+
+  // 作業チェックリスト用アイテムカード生成
+  renderChecklistItem(r) {
+    const isDone = !!r.completed;
+    const completedClass = isDone ? 'is-completed' : '';
+    const pSlots = this.normalizePhotos(r);
+
+    // 写真サムネイル
+    const allPhotos = [
+      ...pSlots.entrance.map(p => ({ ...p, badge: '🚪 入口' })),
+      ...pSlots.room.map(p => ({ ...p, badge: '🏢 部屋' })),
+      ...pSlots.equipment.map(p => ({ ...p, badge: '⚙️ 機器' }))
+    ];
+
+    const photosHtml = allPhotos.length > 0 ? `
+      <div class="check-photos-row">
+        ${allPhotos.map(p => `
+          <img src="${p.dataUrl}" alt="${p.label}" class="check-photo-thumb" title="${p.badge}: タップで拡大" onclick="app.showModalPhoto('${p.dataUrl}', '${this.escapeHtml(r.facility)} - ${this.escapeHtml(r.room)} (${p.badge})')">
+        `).join('')}
+      </div>
+    ` : '';
+
+    // 機種バッジ
+    const subs = r.pacSubtypes || {};
+    const equipTags = [];
+    if (subs.cassette > 0) equipTags.push(`<span class="check-tag check-tag-equip">天カセ ${subs.cassette}台</span>`);
+    if (subs.floor > 0) equipTags.push(`<span class="check-tag check-tag-equip">床置 ${subs.floor}台</span>`);
+    if (subs.ceiling > 0) equipTags.push(`<span class="check-tag check-tag-equip">天吊 ${subs.ceiling}台</span>`);
+    if (subs.wall > 0) equipTags.push(`<span class="check-tag check-tag-equip">壁掛 ${subs.wall}台</span>`);
+    if (subs.other > 0) equipTags.push(`<span class="check-tag check-tag-equip">他PAC ${subs.other}台</span>`);
+    if (subs.unknown > 0) equipTags.push(`<span class="check-tag check-tag-equip">PAC(確認中) ${subs.unknown}台</span>`);
+    if (r.hexCount > 0) equipTags.push(`<span class="check-tag check-tag-equip">全熱 ${r.hexCount}台</span>`);
+    if (r.fcuCount > 0) equipTags.push(`<span class="check-tag check-tag-equip">FCU ${r.fcuCount}台</span>`);
+    if (r.otherEquipment) equipTags.push(`<span class="check-tag check-tag-equip">${this.escapeHtml(r.otherEquipment)}</span>`);
+
+    const totalUnits = r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0));
+
+    // 完了日時の整形
+    let completedMetaHtml = '';
+    if (isDone && r.completedAt) {
+      try {
+        const d = new Date(r.completedAt);
+        const timeStr = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        completedMetaHtml = `<div class="check-completed-meta"><span>✅ 作業完了: ${timeStr}</span></div>`;
+      } catch (e) {}
+    }
+
+    return `
+      <div class="check-item-card ${completedClass}" id="check-card-${r.id}">
+        <!-- 特大チェックボタン（現場の指先タップに最適） -->
+        <button type="button" class="check-box-btn" title="${isDone ? 'タップで未着手に戻す' : 'タップで作業完了にする'}" onclick="app.toggleRecordComplete('${r.id}')">
+          ${isDone ? '✔' : ''}
+        </button>
+
+        <div class="check-item-content">
+          <div class="check-item-header">
+            <span class="check-location-sub">🏰 [${r.park}] ${this.escapeHtml(r.area)} ＞ ${this.escapeHtml(r.facility)} ${r.floor ? `(${this.escapeHtml(r.floor)})` : ''}</span>
+            <span class="check-status-tag ${isDone ? 'completed' : 'pending'}">${isDone ? '✅ 完了' : '⏳ 未着手'}</span>
+          </div>
+
+          <div class="check-room-title">📍 ${this.escapeHtml(r.room)}</div>
+
+          <div class="check-tags-row">
+            <span class="check-tag check-tag-units">計 ${totalUnits}台</span>
+            ${equipTags.join('')}
+            ${r.filterSpec ? `<span class="check-tag check-tag-filter" title="フィルター仕様">⚙️ ${this.escapeHtml(r.filterSpec)}</span>` : ''}
+            ${r.machineNo ? `<span class="check-tag check-tag-filter" title="機番・系統">#️⃣ ${this.escapeHtml(r.machineNo)}</span>` : ''}
+            ${r.equipment ? `<span class="check-tag check-tag-gear" title="必要なもの">🪜 ${this.escapeHtml(r.equipment)}</span>` : ''}
+            ${r.access ? `<span class="check-tag check-tag-access" title="アクセス方法">🚪 ${this.escapeHtml(r.access)}</span>` : ''}
+          </div>
+
+          ${r.notes ? `<div class="check-notes-box">⚠️ ${this.escapeHtml(r.notes)}</div>` : ''}
+          ${completedMetaHtml}
+          ${photosHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // 作業チェックのトグル操作
+  async toggleRecordComplete(id) {
+    const rec = this.records.find(r => r.id === id);
+    if (!rec) return;
+
+    rec.completed = !rec.completed;
+    rec.completedAt = rec.completed ? new Date().toISOString() : null;
+
+    try {
+      await this.saveRecord(rec);
+      this.renderChecklistView();
+      this.renderRecordsList();
+      this.renderSpreadsheetPreview();
+
+      if (rec.completed) {
+        this.showToast(`✅「${rec.facility} - ${rec.room}」の作業を完了にしました！`);
+      } else {
+        this.showToast(`⏳「${rec.facility} - ${rec.room}」を未着手に戻しました`);
+      }
+    } catch (e) {
+      console.error(e);
+      this.showToast('作業状態の更新に失敗しました', true);
+    }
+  }
+
+  // 表示中を一括完了 / 一括未着手
+  async batchSetChecklistComplete(targetComplete) {
+    const filtered = this.getFilteredChecklistRecords();
+    const targets = filtered.filter(r => (targetComplete ? !r.completed : r.completed));
+
+    if (targets.length === 0) {
+      this.showToast(targetComplete ? '表示中に対象となる未着手データがありません' : '表示中に対象となる完了データがありません');
+      return;
+    }
+
+    const actionName = targetComplete ? '「作業完了」' : '「未着手」';
+    if (!confirm(`表示中の ${targets.length} 件を一括で ${actionName} に変更しますか？`)) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    for (const r of targets) {
+      r.completed = targetComplete;
+      r.completedAt = targetComplete ? now : null;
+      await this.saveRecord(r);
+    }
+
+    this.renderChecklistView();
+    this.renderRecordsList();
+    this.renderSpreadsheetPreview();
+    this.showToast(`✨ ${targets.length} 件を一括で ${actionName} に更新しました！`);
+  }
+
+  // 作業サマリー集計バー
+  renderCheckStatsBar(records) {
+    const bar = document.getElementById('check-stats-bar');
+    if (!bar) return;
+
+    if (records.length === 0) {
+      bar.innerHTML = '';
+      return;
+    }
+
+    let totalUnits = 0;
+    records.forEach(r => {
+      totalUnits += (r.totalUnits || ((r.pacCount || 0) + (r.hexCount || 0) + (r.fcuCount || 0)));
+    });
+
+    const doneCount = records.filter(r => r.completed).length;
+    const pendingCount = records.length - doneCount;
+
+    bar.innerHTML = `
+      <span class="stat-pill highlight">表示中: ${records.length} 室</span>
+      <span class="stat-pill">❄️ 機器計: ${totalUnits} 台</span>
+      <span class="stat-pill cyan">✅ 完了: ${doneCount} 室</span>
+      <span class="stat-pill" style="color:#fbbf24; border-color:rgba(245,158,11,0.4);">⏳ 未着手: ${pendingCount} 室</span>
+    `;
+  }
+
   // ================= 10. 写真付き現場カルテ（印刷・PDF） =================
   renderReportCards() {
     const container = document.getElementById('report-cards-container');
@@ -2757,6 +3219,8 @@ class HVACApp {
 
     if (tabId === 'tab-list') {
       this.renderRecordsList();
+    } else if (tabId === 'tab-check') {
+      this.renderChecklistView();
     } else if (tabId === 'tab-export') {
       this.renderSpreadsheetPreview();
     } else if (tabId === 'tab-report') {
