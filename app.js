@@ -307,6 +307,7 @@ class HVACApp {
         this.renderRecordsList();
         this.renderSpreadsheetPreview();
         this.renderReportCards();
+        this.updateAllDrumPickers();
         resolve(this.records);
       };
 
@@ -530,6 +531,7 @@ class HVACApp {
       this.renderAllPhotoSlots();
       this.updatePathPreview();
       this.renderAllChips();
+      this.updateAllDrumPickers();
 
       this.isRestoringDraft = false;
 
@@ -548,6 +550,7 @@ class HVACApp {
   setupUI() {
     this.renderAllChips();
     this.renderAllPhotoSlots();
+    this.updateAllDrumPickers();
   }
 
   bindEvents() {
@@ -569,19 +572,50 @@ class HVACApp {
       });
     });
 
-    // エリア・施設・階層・部屋名の入力イベント（すべてリアルタイムにパスプレビュー＆チップハイライト＆自動保存）
-    ['area-input', 'facility-input', 'floor-input', 'room-input'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.addEventListener('input', () => {
+    // エリア・施設・階層・部屋名の入力イベント（リアルタイムにパスプレビュー＆チップハイライト＆ドラムピッカー同期＆自動保存）
+    ['area', 'facility', 'floor', 'room'].forEach(type => {
+      const inputEl = document.getElementById(`${type}-input`);
+      const pickerEl = document.getElementById(`${type}-drum-picker`);
+
+      if (inputEl) {
+        const syncToPicker = () => {
           this.updatePathPreview();
           this.renderAllChips();
+          if (type === 'area') this.updateFacilityDrumPicker();
+          if (type === 'facility') this.updateRoomDrumPicker();
+          if (pickerEl) {
+            const val = inputEl.value.trim();
+            const optionExists = Array.from(pickerEl.options).some(opt => opt.value === val);
+            pickerEl.value = optionExists ? val : '';
+          }
           this.scheduleSaveDraft();
-        });
-        el.addEventListener('change', () => {
-          this.updatePathPreview();
-          this.renderAllChips();
-          this.scheduleSaveDraft();
+        };
+
+        inputEl.addEventListener('input', syncToPicker);
+        inputEl.addEventListener('change', syncToPicker);
+      }
+
+      // ドラムピッカーで選択した際、テキスト入力欄に即時反映
+      if (pickerEl && inputEl) {
+        pickerEl.addEventListener('change', () => {
+          if (pickerEl.value) {
+            inputEl.value = pickerEl.value;
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // 施設を選んだ際、もしエリアが未入力なら過去の登録履歴からエリアを自動補完！
+            if (type === 'facility') {
+              const areaInput = document.getElementById('area-input');
+              if (areaInput && !areaInput.value.trim()) {
+                const foundRec = this.records.find(r => r.facility === pickerEl.value && r.area);
+                if (foundRec && foundRec.area) {
+                  areaInput.value = foundRec.area;
+                  areaInput.dispatchEvent(new Event('input', { bubbles: true }));
+                  areaInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+              }
+            }
+          }
         });
       }
     });
@@ -1114,17 +1148,129 @@ class HVACApp {
     return (document.getElementById('facility-input')?.value || '').trim();
   }
 
+  // 日本語の五十音順ソート（ひらがな・カタカナ・漢字・英数を五十音順に並べ替え）
+  sortJapaneseGojuon(list) {
+    return list.slice().sort((a, b) => {
+      return (a || '').localeCompare(b || '', 'ja', { numeric: true, sensitivity: 'base' });
+    });
+  }
+
+  // ドラムピッカー（セレクトボックス）の選択肢を登録済みデータ＆五十音順で動的更新
+  updateAllDrumPickers() {
+    this.updateAreaDrumPicker();
+    this.updateFacilityDrumPicker();
+    this.updateFloorDrumPicker();
+    this.updateRoomDrumPicker();
+  }
+
+  updateAreaDrumPicker() {
+    const picker = document.getElementById('area-drum-picker');
+    if (!picker) return;
+
+    const candidateAreas = this.candidates.area || [];
+    const recordAreas = this.records
+      .filter(r => !this.selectedPark || r.park === this.selectedPark)
+      .map(r => r.area);
+    const uniqueAreas = Array.from(new Set([...candidateAreas, ...recordAreas].filter(Boolean)));
+    const sortedAreas = this.sortJapaneseGojuon(uniqueAreas);
+
+    const currentVal = this.getCurrentAreaName();
+    let optionsHtml = `<option value="">🎡 登録済エリアから選択 (五十音順: ${sortedAreas.length}件) ▼</option>`;
+    optionsHtml += sortedAreas.map(a => {
+      const isSel = (a === currentVal) ? 'selected' : '';
+      return `<option value="${this.escapeHtml(a)}" ${isSel}>${this.escapeHtml(a)}</option>`;
+    }).join('');
+
+    picker.innerHTML = optionsHtml;
+    picker.value = sortedAreas.includes(currentVal) ? currentVal : '';
+  }
+
+  updateFacilityDrumPicker() {
+    const picker = document.getElementById('facility-drum-picker');
+    if (!picker) return;
+
+    const candidateFacs = this.candidates.facility || [];
+    // 選択中パークの全登録施設 + 全候補施設（五十音順でいつでも探せる）
+    const recordFacs = this.records
+      .filter(r => !this.selectedPark || r.park === this.selectedPark)
+      .map(r => r.facility);
+
+    const uniqueFacs = Array.from(new Set([...candidateFacs, ...recordFacs].filter(Boolean)));
+    const sortedFacs = this.sortJapaneseGojuon(uniqueFacs);
+
+    const currentVal = this.getCurrentFacilityName();
+    let optionsHtml = `<option value="">🏰 登録済施設から選択 (五十音順: ${sortedFacs.length}件) ▼</option>`;
+    optionsHtml += sortedFacs.map(f => {
+      const isSel = (f === currentVal) ? 'selected' : '';
+      return `<option value="${this.escapeHtml(f)}" ${isSel}>${this.escapeHtml(f)}</option>`;
+    }).join('');
+
+    picker.innerHTML = optionsHtml;
+    picker.value = sortedFacs.includes(currentVal) ? currentVal : '';
+  }
+
+  updateFloorDrumPicker() {
+    const picker = document.getElementById('floor-drum-picker');
+    if (!picker) return;
+
+    const candidateFloors = this.candidates.floor || [];
+    const recordFloors = this.records.map(r => r.floor).filter(Boolean);
+    const uniqueFloors = Array.from(new Set([...candidateFloors, ...recordFloors]));
+    const sortedFloors = this.sortJapaneseGojuon(uniqueFloors);
+
+    const currentVal = (document.getElementById('floor-input')?.value || '').trim();
+    let optionsHtml = `<option value="">🏢 登録済階層から選択 (${sortedFloors.length}件) ▼</option>`;
+    optionsHtml += sortedFloors.map(fl => {
+      const isSel = (fl === currentVal) ? 'selected' : '';
+      return `<option value="${this.escapeHtml(fl)}" ${isSel}>${this.escapeHtml(fl)}</option>`;
+    }).join('');
+
+    picker.innerHTML = optionsHtml;
+    picker.value = sortedFloors.includes(currentVal) ? currentVal : '';
+  }
+
+  updateRoomDrumPicker() {
+    const picker = document.getElementById('room-drum-picker');
+    if (!picker) return;
+
+    const currentFacility = this.getCurrentFacilityName();
+    const candidateRooms = this.candidates.room || [];
+    let recordRooms = this.records
+      .filter(r => !currentFacility || r.facility === currentFacility)
+      .map(r => r.room)
+      .filter(Boolean);
+
+    if (recordRooms.length === 0) {
+      recordRooms = this.records.map(r => r.room).filter(Boolean);
+    }
+
+    const uniqueRooms = Array.from(new Set([...candidateRooms, ...recordRooms]));
+    const sortedRooms = this.sortJapaneseGojuon(uniqueRooms);
+
+    const currentVal = (document.getElementById('room-input')?.value || '').trim();
+    let optionsHtml = `<option value="">📍 登録済部屋名から選択 (五十音順: ${sortedRooms.length}件) ▼</option>`;
+    optionsHtml += sortedRooms.map(rm => {
+      const isSel = (rm === currentVal) ? 'selected' : '';
+      return `<option value="${this.escapeHtml(rm)}" ${isSel}>${this.escapeHtml(rm)}</option>`;
+    }).join('');
+
+    picker.innerHTML = optionsHtml;
+    picker.value = sortedRooms.includes(currentVal) ? currentVal : '';
+  }
+
   updateParkAreas() {
     const datalist = document.getElementById('area-datalist');
     if (datalist) {
       const candidateAreas = this.candidates.area || [];
       const recordAreas = this.records.filter(r => r.park === this.selectedPark).map(r => r.area);
       const uniqueAreas = Array.from(new Set([...candidateAreas, ...recordAreas].filter(Boolean)));
-      datalist.innerHTML = uniqueAreas.map(a => `<option value="${this.escapeHtml(a)}"></option>`).join('');
+      const sortedAreas = this.sortJapaneseGojuon(uniqueAreas);
+      datalist.innerHTML = sortedAreas.map(a => `<option value="${this.escapeHtml(a)}"></option>`).join('');
     }
     this.updateAreaFacilities();
     this.updatePathPreview();
     this.renderAllChips();
+    this.updateAllDrumPickers();
   }
 
   updateAreaFacilities() {
@@ -1133,10 +1279,12 @@ class HVACApp {
       const candidateFacs = this.candidates.facility || [];
       const recordFacs = this.records.filter(r => r.park === this.selectedPark).map(r => r.facility);
       const uniqueFacs = Array.from(new Set([...candidateFacs, ...recordFacs].filter(Boolean)));
-      datalist.innerHTML = uniqueFacs.map(f => `<option value="${this.escapeHtml(f)}"></option>`).join('');
+      const sortedFacs = this.sortJapaneseGojuon(uniqueFacs);
+      datalist.innerHTML = sortedFacs.map(f => `<option value="${this.escapeHtml(f)}"></option>`).join('');
     }
     this.updatePathPreview();
     this.renderAllChips();
+    this.updateFacilityDrumPicker();
   }
 
   updatePathPreview() {
@@ -1297,6 +1445,7 @@ class HVACApp {
     this.togglePhotoSection(false);
     this.updatePathPreview();
     this.renderAllChips();
+    this.updateAllDrumPickers();
     this.isRestoringDraft = false;
 
     if (keepContinuousFields) {
@@ -1363,6 +1512,7 @@ class HVACApp {
     this.togglePhotoSection(false);
     this.updatePathPreview();
     this.renderAllChips();
+    this.updateAllDrumPickers();
     this.isRestoringDraft = false;
     this.scheduleSaveDraft();
 

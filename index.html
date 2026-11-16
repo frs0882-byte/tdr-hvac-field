@@ -100,6 +100,13 @@
               <label for="area-input" class="form-label">エリア / テーマポート <span class="req">*</span></label>
               <input type="text" id="area-input" list="area-datalist" class="form-input" placeholder="例: メディテレーニアンハーバー、その他 (直接入力または下の候補をタップ)" autocomplete="off" required>
               <datalist id="area-datalist"></datalist>
+
+              <!-- エリア ドラムピッカー (五十音順) -->
+              <div class="drum-picker-container mt-1">
+                <select id="area-drum-picker" class="form-select drum-picker-select">
+                  <option value="">🎡 登録済エリアから選択 (五十音順) ▼</option>
+                </select>
+              </div>
               
               <!-- エリア候補チップ -->
               <div id="area-chips-container" class="quick-chip-container mt-1">
@@ -122,6 +129,13 @@
               <input type="text" id="facility-input" list="facility-datalist" class="form-input" placeholder="例: センター・オブ・ジ・アース、ソアリン (直接入力または下の候補をタップ)" autocomplete="off" required>
               <datalist id="facility-datalist"></datalist>
 
+              <!-- 施設 ドラムピッカー (五十音順) -->
+              <div class="drum-picker-container mt-1">
+                <select id="facility-drum-picker" class="form-select drum-picker-select">
+                  <option value="">🏰 登録済施設から選択 (五十音順) ▼</option>
+                </select>
+              </div>
+
               <!-- 施設候補チップ -->
               <div id="facility-chips-container" class="quick-chip-container mt-1">
                 <div class="chip-header-row">
@@ -141,6 +155,13 @@
             <div class="form-group">
               <label for="floor-input" class="form-label">階層（1Fなど） <span class="req">*</span></label>
               <input type="text" id="floor-input" class="form-input" placeholder="例: 1F, 2F, B1F, 屋上" required>
+
+              <!-- 階層 ドラムピッカー -->
+              <div class="drum-picker-container mt-1">
+                <select id="floor-drum-picker" class="form-select drum-picker-select">
+                  <option value="">🏢 登録済階層から選択 (五十音順) ▼</option>
+                </select>
+              </div>
               
               <!-- 階層候補チップ -->
               <div class="quick-chip-container mt-1">
@@ -161,6 +182,13 @@
             <div class="form-group">
               <label for="room-input" class="form-label">部屋名 <span class="req">*</span></label>
               <input type="text" id="room-input" class="form-input text-lg" placeholder="例: 機械室No.2, 屋上PACスペース" required>
+
+              <!-- 部屋名 ドラムピッカー (五十音順) -->
+              <div class="drum-picker-container mt-1">
+                <select id="room-drum-picker" class="form-select drum-picker-select">
+                  <option value="">📍 登録済部屋名から選択 (五十音順) ▼</option>
+                </select>
+              </div>
               
               <!-- 部屋名のクイック候補チップ -->
               <div class="quick-chip-container mt-2">

@@ -2077,3 +2077,47 @@ body {
   padding: 2px 8px;
   border-radius: var(--radius-full);
 }
+
+/* ドラムピッカー（セレクトボックス・ホイール選択） */
+.drum-picker-container {
+  position: relative;
+  width: 100%;
+}
+
+.drum-picker-select {
+  width: 100%;
+  height: 38px;
+  padding: 0 32px 0 12px;
+  background-color: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: var(--radius-sm);
+  color: #38bdf8;
+  font-size: 13px;
+  font-weight: 600;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2338bdf8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.drum-picker-select:hover {
+  background-color: rgba(30, 41, 59, 0.85);
+  border-color: #38bdf8;
+}
+
+.drum-picker-select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+  outline: none;
+}
+
+.drum-picker-select option {
+  background-color: #0f172a;
+  color: #f1f5f9;
+  font-size: 14px;
+  padding: 8px;
+}
