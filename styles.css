@@ -1496,6 +1496,13 @@ body {
   font-weight: 700;
 }
 
+.badge-pac-duct {
+  background-color: rgba(20, 184, 166, 0.25);
+  color: #2dd4bf;
+  border: 1px solid rgba(45, 212, 191, 0.5);
+  font-weight: 700;
+}
+
 .badge-pac-other {
   background-color: rgba(100, 116, 139, 0.25);
   color: #cbd5e1;
@@ -2338,6 +2345,22 @@ body {
   background: #10b981;
 }
 
+/* 一部完了（機器単位で進行中）の行カード */
+.check-item-card.is-partial {
+  background: rgba(14, 165, 233, 0.08);
+  border-color: rgba(14, 165, 233, 0.4);
+}
+
+.check-item-card.is-partial::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #0ea5e9;
+}
+
 /* 特大チェックボタン（現場の指先タップに最適） */
 .check-box-btn {
   flex-shrink: 0;
@@ -2368,6 +2391,13 @@ body {
   border-color: #10b981;
   color: #ffffff;
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+}
+
+.check-item-card.is-partial .check-box-btn {
+  background: rgba(14, 165, 233, 0.25);
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.35);
 }
 
 /* チェック行のメイン本文 */
@@ -2409,6 +2439,12 @@ body {
   background: rgba(16, 185, 129, 0.2);
   color: #34d399;
   border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.check-status-tag.partial {
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.4);
 }
 
 .check-room-title {
@@ -2476,6 +2512,104 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
+/* 機器別チェックチップ セクション (複数機器の個別点検用) */
+.check-equip-chips-section {
+  margin: 6px 0 8px 0;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.check-equip-chips-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.check-equip-progress-hint {
+  font-size: 11px;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.check-equip-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.check-equip-chip {
+  appearance: none;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1.5px solid rgba(148, 163, 184, 0.4);
+  color: #f1f5f9;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.check-equip-chip:hover {
+  background: rgba(51, 65, 85, 0.95);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+.check-equip-chip:active {
+  transform: scale(0.96);
+}
+
+/* 機器完了状態のチップ */
+.check-equip-chip.is-done {
+  background: #059669;
+  border-color: #10b981;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.check-equip-chip.is-done .chip-check-mark {
+  background: #ffffff;
+  color: #059669;
+  font-weight: 900;
+}
+
+.check-equip-chip .chip-check-mark {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  background: rgba(148, 163, 184, 0.25);
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+/* 絞り込み機種と一致するチップの強調（ハイライト表示） */
+.check-equip-chip.is-highlighted {
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+  position: relative;
+}
+
+.check-equip-chip.is-highlighted:not(.is-done) {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+}
+
 /* 備考・特記事項ボックス */
 .check-notes-box {
   background: rgba(15, 23, 42, 0.5);
@@ -2538,6 +2672,16 @@ body {
   border: 1px solid rgba(245, 158, 11, 0.3);
   font-size: 10.5px;
   font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.badge-work-partial {
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  font-size: 10.5px;
+  font-weight: 700;
   padding: 1px 6px;
   border-radius: 4px;
 }

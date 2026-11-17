@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-6.png?v=8">
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-6.png?v=8">
   <title>TDR空調設備 現場リスト管理</title>
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=25">
   <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -428,6 +428,19 @@
                   </div>
                 </div>
 
+                <!-- 隠蔽ダクト -->
+                <div class="pac-type-cell">
+                  <div class="type-cell-label">
+                    <span class="cell-name">隠蔽ダクト</span>
+                    <span class="cell-desc">ビルトイン等</span>
+                  </div>
+                  <div class="stepper-controls sm">
+                    <button type="button" class="btn-step" data-action="dec" data-target="pac-duct-count">－</button>
+                    <input type="number" id="pac-duct-count" class="stepper-input pac-sub-input" value="0" min="0" max="99">
+                    <button type="button" class="btn-step" data-action="inc" data-target="pac-duct-count">＋</button>
+                  </div>
+                </div>
+
                 <!-- その他PAC -->
                 <div class="pac-type-cell">
                   <div class="type-cell-label">
@@ -570,6 +583,7 @@
               <option value="floor">PAC (床置き)</option>
               <option value="ceiling">PAC (天吊り)</option>
               <option value="wall">PAC (壁掛け)</option>
+              <option value="duct">PAC (隠蔽ダクト)</option>
               <option value="other_pac">PAC (その他)</option>
               <option value="unknown_pac">PAC (種別確認中)</option>
               <option value="pac_any">PAC (すべて)</option>
@@ -737,6 +751,7 @@
               <option value="floor">PAC (床置き)</option>
               <option value="ceiling">PAC (天吊り)</option>
               <option value="wall">PAC (壁掛け)</option>
+              <option value="duct">PAC (隠蔽ダクト)</option>
               <option value="other_pac">PAC (その他)</option>
               <option value="unknown_pac">PAC (種別確認中)</option>
               <option value="pac_any">PAC (すべて)</option>
@@ -998,13 +1013,13 @@
   <!-- QRコード生成ライブラリ (完全オフライン対応) -->
   <script src="qrcode.min.js"></script>
   <!-- マスターデータとアプリケーションスクリプト -->
-  <script src="master-data.js?v=23"></script>
-  <script src="app.js?v=23"></script>
+  <script src="master-data.js?v=25"></script>
+  <script src="app.js?v=25"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const reg = await navigator.serviceWorker.register('./service-worker.js?v=23', { updateViaCache: 'none' });
+          const reg = await navigator.serviceWorker.register('./service-worker.js?v=25', { updateViaCache: 'none' });
           if (reg && reg.update) reg.update();
         } catch (err) {
           console.warn('SW registration failed:', err);
