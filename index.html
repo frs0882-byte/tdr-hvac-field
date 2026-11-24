@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-6.png?v=8">
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-6.png?v=8">
   <title>TDR空調設備 現場リスト管理</title>
-  <link rel="stylesheet" href="styles.css?v=26">
+  <link rel="stylesheet" href="styles.css?v=27">
   <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -667,7 +667,7 @@
               <span class="num-badge">✅</span>
               <div>
                 <h2>作業チェックリスト</h2>
-                <p class="section-desc">現場巡回・点検・フィルター作業のチェック管理</p>
+                <p class="section-desc">現場巡回・点検・フィルター作業管理</p>
               </div>
             </div>
             <div class="check-summary-badge" id="check-overall-percent-badge">--%</div>
@@ -729,58 +729,40 @@
           <!-- 検索バー -->
           <div class="search-box">
             <span class="search-icon">🔍</span>
-            <input type="text" id="check-search-input" class="form-input search-input" placeholder="部屋名・機番・フィルター仕様・メモで検索..." autocomplete="off">
+            <input type="text" id="check-search-input" class="form-input search-input" placeholder="部屋名・施設・メモで部分一致検索..." autocomplete="off">
             <button type="button" id="check-clear-search-btn" class="clear-search-btn hidden">✕</button>
           </div>
 
-          <!-- フィルタ第1行: パーク・エリア・施設 -->
-          <div class="filter-grid mt-2">
-            <select id="check-filter-park" class="form-select select-sm">
-              <option value="">🏰 全パーク</option>
-              <option value="TDS">TDS (シー)</option>
-              <option value="TDL">TDL (ランド)</option>
-              <option value="HOTEL">ホテル</option>
-              <option value="OTHER">その他</option>
-            </select>
-            <select id="check-filter-area" class="form-select select-sm">
-              <option value="">🗺️ 全エリア</option>
-            </select>
-            <select id="check-filter-facility" class="form-select select-sm">
-              <option value="">🏢 全施設</option>
-            </select>
+          <!-- 複数選択対応フィルタボタン群 (タップで複数選択パネルを開く) -->
+          <div class="multi-filter-grid mt-2">
+            <button type="button" class="multi-filter-btn" id="check-filter-btn-park" onclick="app.openCheckMultiFilter('park')">
+              <span class="mf-label">🏰 全パーク</span>
+              <span class="mf-arrow">▼</span>
+            </button>
+            <button type="button" class="multi-filter-btn" id="check-filter-btn-area" onclick="app.openCheckMultiFilter('area')">
+              <span class="mf-label">🗺️ 全エリア (複数可)</span>
+              <span class="mf-arrow">▼</span>
+            </button>
+            <button type="button" class="multi-filter-btn" id="check-filter-btn-facility" onclick="app.openCheckMultiFilter('facility')">
+              <span class="mf-label">🏢 全施設 (複数可)</span>
+              <span class="mf-arrow">▼</span>
+            </button>
+            <button type="button" class="multi-filter-btn" id="check-filter-btn-floor" onclick="app.openCheckMultiFilter('floor')">
+              <span class="mf-label">📶 全階層 (複数可)</span>
+              <span class="mf-arrow">▼</span>
+            </button>
+            <button type="button" class="multi-filter-btn" id="check-filter-btn-unitType" onclick="app.openCheckMultiFilter('unitType')">
+              <span class="mf-label">❄️ 全空調機種 (複数可)</span>
+              <span class="mf-arrow">▼</span>
+            </button>
+            <button type="button" class="multi-filter-btn" id="check-filter-btn-equipment" onclick="app.openCheckMultiFilter('equipment')">
+              <span class="mf-label">🪜 全機材・脚立 (複数可)</span>
+              <span class="mf-arrow">▼</span>
+            </button>
           </div>
 
-          <!-- フィルタ第2行: 階層・機種・機材 -->
-          <div class="filter-grid mt-2">
-            <select id="check-filter-floor" class="form-select select-sm">
-              <option value="">📶 全階層</option>
-            </select>
-            <select id="check-filter-unit-type" class="form-select select-sm">
-              <option value="">❄️ 全空調機種</option>
-              <option value="cassette">PAC (天カセ)</option>
-              <option value="floor">PAC (床置き)</option>
-              <option value="ceiling">PAC (天吊り)</option>
-              <option value="wall">PAC (壁掛け)</option>
-              <option value="duct">PAC (隠蔽ダクト)</option>
-              <option value="other_pac">PAC (その他)</option>
-              <option value="unknown_pac">PAC (種別確認中)</option>
-              <option value="pac_any">PAC (すべて)</option>
-              <option value="hex">全熱交換器 (HEX)</option>
-              <option value="fcu">ファンコイル (FCU)</option>
-              <option value="other">その他機器</option>
-            </select>
-            <select id="check-filter-equipment" class="form-select select-sm">
-              <option value="">🪜 全機材・脚立</option>
-              <option value="9尺">9尺脚立</option>
-              <option value="8尺">8尺脚立</option>
-              <option value="7尺">7尺脚立</option>
-              <option value="6尺">6尺脚立</option>
-              <option value="4尺">4尺脚立</option>
-              <option value="フィルター">フィルター</option>
-              <option value="バックステージ">バックステージ</option>
-              <option value="オンステージ">オンステージ</option>
-            </select>
-          </div>
+          <!-- 選択中の絞り込み条件チップ一覧 (タップで個別解除可能) -->
+          <div id="check-active-filter-chips" class="active-filter-chips-bar hidden mt-2"></div>
 
           <!-- 並べ替え ＆ リセット -->
           <div class="sort-reset-row mt-2">
@@ -1075,6 +1057,33 @@
       </div>
     </div>
 
+    <!-- 複数選択絞り込みモーダル（エリア・施設・機種などの複数選択） -->
+    <div id="check-multi-filter-modal" class="modal-overlay hidden no-print">
+      <div class="modal-card modal-card-multi-filter">
+        <div class="modal-header">
+          <h3 id="multi-filter-modal-title">絞り込み項目を選択（複数選択可）</h3>
+          <button type="button" id="close-multi-filter-btn" class="btn-clear">✕</button>
+        </div>
+        <div class="multi-filter-toolbar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="multi-filter-search-input" class="form-input search-input" placeholder="項目名で絞り込み..." autocomplete="off">
+            <button type="button" id="multi-filter-search-clear" class="clear-search-btn hidden">✕</button>
+          </div>
+          <div class="multi-filter-quick-row mt-2">
+            <button type="button" id="multi-filter-select-all-btn" class="btn btn-sub btn-sm">☑️ すべて選択</button>
+            <button type="button" id="multi-filter-clear-all-btn" class="btn btn-sub btn-sm">⬜ 選択をすべて解除</button>
+          </div>
+        </div>
+        <div id="multi-filter-options-list" class="multi-filter-options-list">
+          <!-- JSで動的描画 -->
+        </div>
+        <div class="modal-footer multi-filter-footer">
+          <button type="button" id="apply-multi-filter-btn" class="btn btn-primary btn-block">✅ この条件で絞り込む</button>
+        </div>
+      </div>
+    </div>
+
     <!-- トースト通知 -->
     <div id="toast" class="toast hidden"></div>
   </div>
@@ -1085,13 +1094,13 @@
   <!-- QRコード生成ライブラリ (完全オフライン対応) -->
   <script src="qrcode.min.js"></script>
   <!-- マスターデータとアプリケーションスクリプト -->
-  <script src="master-data.js?v=26"></script>
-  <script src="app.js?v=26"></script>
+  <script src="master-data.js?v=27"></script>
+  <script src="app.js?v=27"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const reg = await navigator.serviceWorker.register('./service-worker.js?v=26', { updateViaCache: 'none' });
+          const reg = await navigator.serviceWorker.register('./service-worker.js?v=27', { updateViaCache: 'none' });
           if (reg && reg.update) reg.update();
         } catch (err) {
           console.warn('SW registration failed:', err);

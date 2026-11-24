@@ -44,6 +44,16 @@ class HVACApp {
 
     // 作業チェックリストの状態
     this.checkStatusFilter = 'all'; // 'all' | 'pending' | 'completed'
+    this.checkMultiFilters = {
+      park: [],
+      area: [],
+      facility: [],
+      floor: [],
+      unitType: [],
+      equipment: []
+    };
+    this.activeMultiFilterKey = null;
+    this.tempMultiFilterSelected = [];
 
     // ユーザー自身が管理するキャプションデータ（初期デフォルトは全てなし・空配列）
     this.candidates = this.loadCandidates();
@@ -916,41 +926,49 @@ class HVACApp {
       this.renderChecklistView();
     });
 
-    // 作業チェック フィルタ・ソート
-    [
-      'check-filter-park',
-      'check-filter-area',
-      'check-filter-facility',
-      'check-filter-floor',
-      'check-filter-unit-type',
-      'check-filter-equipment',
-      'check-sort-order'
-    ].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => {
-        this.renderChecklistView();
-      });
+    // 作業チェック 並べ替え
+    document.getElementById('check-sort-order')?.addEventListener('change', () => {
+      this.renderChecklistView();
     });
 
-    // 作業チェック フィルタ条件クリア
+    // 作業チェック フィルタ条件クリア (複数選択すべてリセット)
     document.getElementById('check-reset-filters-btn')?.addEventListener('click', () => {
       const input = document.getElementById('check-search-input');
       if (input) input.value = '';
       document.getElementById('check-clear-search-btn')?.classList.add('hidden');
-      [
-        'check-filter-park',
-        'check-filter-area',
-        'check-filter-facility',
-        'check-filter-floor',
-        'check-filter-unit-type',
-        'check-filter-equipment'
-      ].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
+      this.checkMultiFilters = {
+        park: [], area: [], facility: [], floor: [], unitType: [], equipment: []
+      };
       const sortEl = document.getElementById('check-sort-order');
       if (sortEl) sortEl.value = 'hierarchy';
+      this.renderCheckFilterButtonsAndChips();
       this.renderChecklistView();
       this.showToast('🔄 作業チェックの絞り込み条件をリセットしました');
+    });
+
+    // 複数選択絞り込みモーダルイベント
+    document.getElementById('close-multi-filter-btn')?.addEventListener('click', () => this.closeCheckMultiFilter());
+    document.getElementById('check-multi-filter-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'check-multi-filter-modal') this.closeCheckMultiFilter();
+    });
+    document.getElementById('multi-filter-search-input')?.addEventListener('input', (e) => {
+      document.getElementById('multi-filter-search-clear')?.classList.toggle('hidden', !e.target.value);
+      this.renderMultiFilterOptions();
+    });
+    document.getElementById('multi-filter-search-clear')?.addEventListener('click', () => {
+      const inp = document.getElementById('multi-filter-search-input');
+      if (inp) inp.value = '';
+      document.getElementById('multi-filter-search-clear')?.classList.add('hidden');
+      this.renderMultiFilterOptions();
+    });
+    document.getElementById('multi-filter-select-all-btn')?.addEventListener('click', () => {
+      this.selectAllMultiFilterOptions(true);
+    });
+    document.getElementById('multi-filter-clear-all-btn')?.addEventListener('click', () => {
+      this.selectAllMultiFilterOptions(false);
+    });
+    document.getElementById('apply-multi-filter-btn')?.addEventListener('click', () => {
+      this.applyCheckMultiFilter();
     });
 
     document.getElementById('check-scroll-top-btn')?.addEventListener('click', () => {
@@ -2409,29 +2427,23 @@ class HVACApp {
     const source = overrideSource || document.getElementById('export-filter-source')?.value || 'list';
     if (source === 'checklist') {
       const records = this.getFilteredChecklistRecords();
-      const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
-      const filterPark = document.getElementById('check-filter-park')?.value || '';
-      const filterArea = document.getElementById('check-filter-area')?.value || '';
-      const filterFacility = document.getElementById('check-filter-facility')?.value || '';
+      const mf = this.checkMultiFilters || { park: [], area: [], facility: [], floor: [], unitType: [], equipment: [] };
       const status = this.checkStatusFilter || 'all';
       const parts = [];
       if (status === 'pending') parts.push('未着手のみ');
       else if (status === 'completed') parts.push('完了済みのみ');
-      if (filterPark) parts.push(`パーク=${filterPark}`);
-      if (filterArea) parts.push(`エリア=${filterArea}`);
-      if (filterFacility) parts.push(`施設=${filterFacility}`);
-      if (filterUnitType) {
-        const typeNames = {
-          cassette: 'PAC(天カセ)', floor: 'PAC(床置)', ceiling: 'PAC(天吊)', wall: 'PAC(壁掛)',
-          duct: 'PAC(隠蔽ダクト)', other_pac: 'PAC(他)', unknown_pac: 'PAC(確認中)',
-          pac_any: 'PAC全種', hex: '全熱交換器(HEX)', fcu: 'FCU', other: 'その他'
-        };
-        parts.push(`機種=${typeNames[filterUnitType] || filterUnitType}`);
+      if (mf.park.length > 0) parts.push(`パーク=${mf.park.join(', ')}`);
+      if (mf.area.length > 0) parts.push(`エリア=${mf.area.join(', ')}`);
+      if (mf.facility.length > 0) parts.push(`施設=${mf.facility.join(', ')}`);
+      if (mf.floor.length > 0) parts.push(`階層=${mf.floor.join(', ')}`);
+      if (mf.unitType.length > 0) {
+        parts.push(`機種=${mf.unitType.map(u => this.getUnitTypeLabel(u)).join(', ')}`);
       }
+      if (mf.equipment.length > 0) parts.push(`機材=${mf.equipment.join(', ')}`);
       return {
         source,
         records,
-        filterUnitType,
+        filterUnitType: mf.unitType,
         conditionLabel: parts.length > 0 ? parts.join(' / ') : '作業チェック全件'
       };
     }
@@ -2439,7 +2451,7 @@ class HVACApp {
       return {
         source,
         records: this.getFilteredAndSortedRecords(true),
-        filterUnitType: '',
+        filterUnitType: [],
         conditionLabel: '登録データ全件'
       };
     }
@@ -2448,7 +2460,7 @@ class HVACApp {
     return {
       source: 'list',
       records: this.getFilteredAndSortedRecords(false),
-      filterUnitType: unitSel,
+      filterUnitType: unitSel ? [unitSel] : [],
       conditionLabel: this.hasActiveFilters() ? '階層リスト絞込中' : '全件対象'
     };
   }
@@ -2500,14 +2512,10 @@ class HVACApp {
         items.push({ key: null, typeGroup: 'other', type: '空調機未登録', count: '-', num: 0 });
       }
 
-      // 対象機種の絞り込みがある場合は該当機器のみ抽出
-      const finalItems = filterUnitType
-        ? items.filter(it => {
-            if (filterUnitType === 'pac_any') {
-              return ['cassette', 'floor', 'ceiling', 'wall', 'duct', 'other_pac', 'unknown_pac', 'pac'].includes(it.key);
-            }
-            return it.key === filterUnitType;
-          })
+      // 対象機種の絞り込みがある場合は該当機器のみ抽出（配列・単一文字の両対応）
+      const unitFilterArr = this.normalizeUnitFilterArray(filterUnitType);
+      const finalItems = unitFilterArr.length > 0
+        ? items.filter(it => this.equipKeyMatchesFilterArray(it.key, unitFilterArr))
         : items;
 
       finalItems.forEach((item, idxInRoom) => {
@@ -3184,24 +3192,49 @@ class HVACApp {
     };
   }
 
-  // 現在の絞り込み機種を対象とした完了判定
+  // 機種フィルタ表記・正規化ヘルパー
+  getUnitTypeLabel(key) {
+    const typeNames = {
+      cassette: 'PAC (天カセ)', floor: 'PAC (床置)', ceiling: 'PAC (天吊)', wall: 'PAC (壁掛)',
+      duct: 'PAC (隠蔽ダクト)', other_pac: 'PAC (他)', unknown_pac: 'PAC (確認中)',
+      pac_any: 'PAC全種', hex: '全熱交換器', fcu: 'FCU', other: 'その他機器'
+    };
+    return typeNames[key] || key;
+  }
+
+  normalizeUnitFilterArray(unitFilter) {
+    if (!unitFilter) return [];
+    if (Array.isArray(unitFilter)) return unitFilter.filter(Boolean);
+    return String(unitFilter).trim() ? [String(unitFilter).trim()] : [];
+  }
+
+  equipKeyMatchesFilterArray(equipKey, filterArr) {
+    if (!filterArr || filterArr.length === 0) return true;
+    if (!equipKey) return false;
+    if (filterArr.includes(equipKey)) return true;
+    if (filterArr.includes('pac_any')) {
+      return ['cassette', 'floor', 'ceiling', 'wall', 'duct', 'other_pac', 'unknown_pac', 'pac'].includes(equipKey);
+    }
+    return false;
+  }
+
+  recordMatchesUnitTypes(r, filterArr) {
+    if (!filterArr || filterArr.length === 0) return true;
+    const equips = this.getRecordEquipList(r);
+    return equips.some(eq => this.equipKeyMatchesFilterArray(eq.key, filterArr));
+  }
+
+  // 現在の絞り込み機種（単一・複数両対応）を対象とした完了判定
   isRecordTargetCompleted(r, filterUnitType) {
     if (!r) return false;
-    if (!filterUnitType) {
+    const types = this.normalizeUnitFilterArray(filterUnitType);
+    if (types.length === 0) {
       return !!r.completed;
     }
     const equips = this.getRecordEquipList(r);
-    if (filterUnitType === 'pac_any') {
-      const pacs = equips.filter(e => e.type === 'pac');
-      if (pacs.length === 0) return !!r.completed;
-      return pacs.every(e => this.isEquipCompleted(r, e.key));
-    }
-    // 特定機種（hex, fcu, cassette, duct, etc.）
-    const match = equips.find(e => e.key === filterUnitType);
-    if (match) {
-      return this.isEquipCompleted(r, match.key);
-    }
-    return !!r.completed;
+    const matching = equips.filter(e => this.equipKeyMatchesFilterArray(e.key, types));
+    if (matching.length === 0) return !!r.completed;
+    return matching.every(e => this.isEquipCompleted(r, e.key));
   }
 
   // レコード全体の completed と completedAt を同期
@@ -3215,86 +3248,319 @@ class HVACApp {
     }
   }
 
-  // 作業チェックリスト用のフィルタ選択肢を動的生成
+  // 作業チェックリストの複数選択ボタン・チップを更新
   updateCheckFilterOptions() {
-    const populateSelect = (selectId, defaultLabel, values, sortFn) => {
-      const sel = document.getElementById(selectId);
-      if (!sel) return;
-      const prevVal = sel.value;
-      const uniqueVals = Array.from(new Set(values.filter(v => v !== null && v !== undefined && String(v).trim().length > 0)));
-      if (sortFn) uniqueVals.sort(sortFn);
-      else uniqueVals.sort((a, b) => String(a).localeCompare(String(b), 'ja'));
-
-      sel.innerHTML = `<option value="">${defaultLabel}</option>` +
-        uniqueVals.map(v => `<option value="${this.escapeHtml(v)}">${this.escapeHtml(v)}</option>`).join('');
-      if (prevVal && uniqueVals.includes(prevVal)) {
-        sel.value = prevVal;
-      }
-    };
-
-    populateSelect('check-filter-area', '🗺️ 全エリア', this.records.map(r => r.area));
-    populateSelect('check-filter-facility', '🏢 全施設', this.records.map(r => r.facility));
-    populateSelect(
-      'check-filter-floor',
-      '📶 全階層',
-      this.records.map(r => r.floor),
-      (a, b) => this.parseFloorOrder(a) - this.parseFloorOrder(b) || String(a).localeCompare(String(b), 'ja')
-    );
+    this.renderCheckFilterButtonsAndChips();
   }
 
-  // 作業チェック用フィルタ＆ソート済みレコード配列取得
+  renderCheckFilterButtonsAndChips() {
+    const mf = this.checkMultiFilters || { park: [], area: [], facility: [], floor: [], unitType: [], equipment: [] };
+    const configs = [
+      { key: 'park', id: 'check-filter-btn-park', icon: '🏰', def: '全パーク', labelName: 'パーク' },
+      { key: 'area', id: 'check-filter-btn-area', icon: '🗺️', def: '全エリア (複数可)', labelName: 'エリア' },
+      { key: 'facility', id: 'check-filter-btn-facility', icon: '🏢', def: '全施設 (複数可)', labelName: '施設' },
+      { key: 'floor', id: 'check-filter-btn-floor', icon: '📶', def: '全階層 (複数可)', labelName: '階層' },
+      { key: 'unitType', id: 'check-filter-btn-unitType', icon: '❄️', def: '全空調機種 (複数可)', labelName: '機種' },
+      { key: 'equipment', id: 'check-filter-btn-equipment', icon: '🪜', def: '全機材・脚立 (複数可)', labelName: '機材' }
+    ];
+
+    configs.forEach(c => {
+      const btn = document.getElementById(c.id);
+      if (!btn) return;
+      const arr = mf[c.key] || [];
+      btn.classList.toggle('has-selection', arr.length > 0);
+      const labelEl = btn.querySelector('.mf-label');
+      if (labelEl) {
+        if (arr.length === 0) {
+          labelEl.textContent = `${c.icon} ${c.def}`;
+        } else if (arr.length === 1) {
+          const disp = c.key === 'unitType' ? this.getUnitTypeLabel(arr[0]) : arr[0];
+          labelEl.textContent = `${c.icon} ${disp}`;
+        } else {
+          labelEl.textContent = `${c.icon} ${c.labelName}: ${arr.length}件選択`;
+        }
+      }
+    });
+
+    // 選択中チップバー描画
+    const chipsBar = document.getElementById('check-active-filter-chips');
+    if (!chipsBar) return;
+    const allChips = [];
+    configs.forEach(c => {
+      (mf[c.key] || []).forEach(val => {
+        const disp = c.key === 'unitType' ? this.getUnitTypeLabel(val) : val;
+        allChips.push(`
+          <button type="button" class="active-filter-chip" title="タップで解除" onclick="app.removeCheckMultiFilterChip('${c.key}', '${this.escapeHtml(val).replace(/'/g, "\\'")}')">
+            <span>${c.icon} ${this.escapeHtml(disp)}</span>
+            <span class="afc-close">✕</span>
+          </button>
+        `);
+      });
+    });
+
+    if (allChips.length > 0) {
+      chipsBar.innerHTML = allChips.join('');
+      chipsBar.classList.remove('hidden');
+    } else {
+      chipsBar.innerHTML = '';
+      chipsBar.classList.add('hidden');
+    }
+  }
+
+  removeCheckMultiFilterChip(key, value) {
+    if (!this.checkMultiFilters || !this.checkMultiFilters[key]) return;
+    this.checkMultiFilters[key] = this.checkMultiFilters[key].filter(v => v !== value);
+    this.renderCheckFilterButtonsAndChips();
+    this.renderChecklistView();
+  }
+
+  // 複数選択モーダルを開く
+  openCheckMultiFilter(key) {
+    this.activeMultiFilterKey = key;
+    this.tempMultiFilterSelected = [...(this.checkMultiFilters[key] || [])];
+
+    const titles = {
+      park: '🏰 パークを複数選択',
+      area: '🗺️ エリアを複数選択',
+      facility: '🏢 施設・アトラクションを複数選択',
+      floor: '📶 階層を複数選択',
+      unitType: '❄️ 空調機種を複数選択',
+      equipment: '🪜 必要な機材・アクセスを複数選択'
+    };
+    const titleEl = document.getElementById('multi-filter-modal-title');
+    if (titleEl) titleEl.textContent = titles[key] || '複数選択';
+
+    const searchInput = document.getElementById('multi-filter-search-input');
+    if (searchInput) searchInput.value = '';
+    document.getElementById('multi-filter-search-clear')?.classList.add('hidden');
+
+    this.renderMultiFilterOptions();
+    document.getElementById('check-multi-filter-modal')?.classList.remove('hidden');
+  }
+
+  closeCheckMultiFilter() {
+    document.getElementById('check-multi-filter-modal')?.classList.add('hidden');
+    this.activeMultiFilterKey = null;
+  }
+
+  getMultiFilterOptionItems(key) {
+    const recs = this.records || [];
+    const mf = this.checkMultiFilters || {};
+    const items = [];
+
+    if (key === 'park') {
+      const labels = { TDS: 'TDS (東京ディズニーシー)', TDL: 'TDL (東京ディズニーランド)', HOTEL: 'ディズニーホテル', OTHER: 'その他' };
+      ['TDS', 'TDL', 'HOTEL', 'OTHER'].forEach(pk => {
+        const cnt = recs.filter(r => r.park === pk).length;
+        if (cnt > 0 || pk === 'TDS' || pk === 'TDL') {
+          items.push({ value: pk, label: labels[pk] || pk, sub: '', count: cnt });
+        }
+      });
+      return items;
+    }
+
+    if (key === 'area') {
+      const areaMap = new Map();
+      recs.forEach(r => {
+        if (!r.area) return;
+        if (mf.park.length > 0 && !mf.park.includes(r.park)) return;
+        if (!areaMap.has(r.area)) areaMap.set(r.area, { park: r.park, count: 0 });
+        areaMap.get(r.area).count++;
+      });
+      // パーク絞込で0になる場合のフォールバック（全レコード）
+      if (areaMap.size === 0) {
+        recs.forEach(r => {
+          if (!r.area) return;
+          if (!areaMap.has(r.area)) areaMap.set(r.area, { park: r.park, count: 0 });
+          areaMap.get(r.area).count++;
+        });
+      }
+      return Array.from(areaMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0], 'ja'))
+        .map(([val, info]) => ({ value: val, label: val, sub: info.park, count: info.count }));
+    }
+
+    if (key === 'facility') {
+      const facMap = new Map();
+      recs.forEach(r => {
+        if (!r.facility) return;
+        if (!facMap.has(r.facility)) {
+          facMap.set(r.facility, { park: r.park, area: r.area || '', count: 0, inSelectedArea: true });
+        }
+        const entry = facMap.get(r.facility);
+        entry.count++;
+      });
+      return Array.from(facMap.entries())
+        .map(([val, info]) => {
+          const isAreaMatch = mf.area.length === 0 || mf.area.includes(info.area);
+          return {
+            value: val,
+            label: val,
+            sub: `[${info.park}] ${info.area}`,
+            count: info.count,
+            _priority: isAreaMatch ? 0 : 1
+          };
+        })
+        .sort((a, b) => a._priority - b._priority || a.label.localeCompare(b.label, 'ja'));
+    }
+
+    if (key === 'floor') {
+      const flMap = new Map();
+      recs.forEach(r => {
+        const fl = (r.floor || '').trim();
+        if (!fl) return;
+        flMap.set(fl, (flMap.get(fl) || 0) + 1);
+      });
+      return Array.from(flMap.entries())
+        .sort((a, b) => this.parseFloorOrder(a[0]) - this.parseFloorOrder(b[0]) || a[0].localeCompare(b[0], 'ja'))
+        .map(([val, count]) => ({ value: val, label: val, sub: '', count }));
+    }
+
+    if (key === 'unitType') {
+      const unitDefs = [
+        { value: 'cassette', label: 'PAC (天カセ)' },
+        { value: 'floor', label: 'PAC (床置き)' },
+        { value: 'ceiling', label: 'PAC (天吊り)' },
+        { value: 'wall', label: 'PAC (壁掛け)' },
+        { value: 'duct', label: 'PAC (隠蔽ダクト)' },
+        { value: 'other_pac', label: 'PAC (その他)' },
+        { value: 'unknown_pac', label: 'PAC (種別確認中)' },
+        { value: 'pac_any', label: 'PAC (全形式まとめて)' },
+        { value: 'hex', label: '全熱交換器 (HEX)' },
+        { value: 'fcu', label: 'ファンコイル (FCU)' },
+        { value: 'other', label: 'その他機器' }
+      ];
+      return unitDefs.map(d => ({
+        value: d.value,
+        label: d.label,
+        sub: '',
+        count: recs.filter(r => this.recordMatchesUnitTypes(r, [d.value])).length
+      }));
+    }
+
+    if (key === 'equipment') {
+      const presets = ['9尺', '8尺', '7尺', '6尺', '4尺', 'フィルター', 'バックステージ', 'オンステージ'];
+      return presets.map(kw => ({
+        value: kw,
+        label: kw === '9尺' || kw === '8尺' || kw === '7尺' || kw === '6尺' || kw === '4尺' ? `${kw}脚立` : kw,
+        sub: '部分一致キーワード',
+        count: recs.filter(r => `${r.equipment || ''} ${r.access || ''}`.includes(kw)).length
+      }));
+    }
+
+    return items;
+  }
+
+  renderMultiFilterOptions() {
+    const key = this.activeMultiFilterKey;
+    const container = document.getElementById('multi-filter-options-list');
+    const applyBtn = document.getElementById('apply-multi-filter-btn');
+    if (!key || !container) return;
+
+    const query = (document.getElementById('multi-filter-search-input')?.value || '').trim();
+    const allItems = this.getMultiFilterOptionItems(key);
+    const visibleItems = query
+      ? allItems.filter(it => this.matchesSearchQuery(`${it.label} ${it.sub}`, query))
+      : allItems;
+
+    if (visibleItems.length === 0) {
+      container.innerHTML = `<div style="text-align:center; padding:24px; color:#94a3b8; font-size:13px;">一致する項目がありません</div>`;
+    } else {
+      container.innerHTML = visibleItems.map(it => {
+        const isSelected = this.tempMultiFilterSelected.includes(it.value);
+        const safeVal = this.escapeHtml(it.value).replace(/'/g, "\\'");
+        return `
+          <div class="mf-option-item ${isSelected ? 'is-selected' : ''}" onclick="app.toggleTempMultiFilterOption('${safeVal}')">
+            <div class="mf-option-left">
+              <span class="mf-option-check">${isSelected ? '✔' : ''}</span>
+              <div class="mf-option-texts">
+                <span class="mf-option-name">${this.escapeHtml(it.label)}</span>
+                ${it.sub ? `<span class="mf-option-sub">${this.escapeHtml(it.sub)}</span>` : ''}
+              </div>
+            </div>
+            <span class="mf-option-count">${it.count}件</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (applyBtn) {
+      const cnt = this.tempMultiFilterSelected.length;
+      applyBtn.textContent = cnt > 0
+        ? `✅ 選択した ${cnt} 件の条件で絞り込む`
+        : '✅ すべて選択解除して全表示する';
+    }
+  }
+
+  toggleTempMultiFilterOption(val) {
+    if (this.tempMultiFilterSelected.includes(val)) {
+      this.tempMultiFilterSelected = this.tempMultiFilterSelected.filter(v => v !== val);
+    } else {
+      this.tempMultiFilterSelected.push(val);
+    }
+    this.renderMultiFilterOptions();
+  }
+
+  selectAllMultiFilterOptions(selectAll) {
+    const key = this.activeMultiFilterKey;
+    if (!key) return;
+    if (!selectAll) {
+      this.tempMultiFilterSelected = [];
+    } else {
+      const query = (document.getElementById('multi-filter-search-input')?.value || '').trim();
+      const allItems = this.getMultiFilterOptionItems(key);
+      const visible = query
+        ? allItems.filter(it => this.matchesSearchQuery(`${it.label} ${it.sub}`, query))
+        : allItems;
+      const merged = new Set(this.tempMultiFilterSelected);
+      visible.forEach(it => merged.add(it.value));
+      this.tempMultiFilterSelected = Array.from(merged);
+    }
+    this.renderMultiFilterOptions();
+  }
+
+  applyCheckMultiFilter() {
+    const key = this.activeMultiFilterKey;
+    if (key) {
+      this.checkMultiFilters[key] = [...this.tempMultiFilterSelected];
+    }
+    this.closeCheckMultiFilter();
+    this.renderCheckFilterButtonsAndChips();
+    this.renderChecklistView();
+  }
+
+  // 作業チェック用フィルタ＆ソート済みレコード配列取得（複数選択 OR 条件対応）
   getFilteredChecklistRecords() {
     let list = [...this.records];
 
     const statusFilter = this.checkStatusFilter; // 'all' | 'pending' | 'completed'
     const searchInputVal = document.getElementById('check-search-input')?.value || '';
-    const filterPark = document.getElementById('check-filter-park')?.value || '';
-    const filterArea = document.getElementById('check-filter-area')?.value || '';
-    const filterFacility = document.getElementById('check-filter-facility')?.value || '';
-    const filterFloor = document.getElementById('check-filter-floor')?.value || '';
-    const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
-    const filterEquip = document.getElementById('check-filter-equipment')?.value || '';
+    const mf = this.checkMultiFilters || { park: [], area: [], facility: [], floor: [], unitType: [], equipment: [] };
+    const filterUnitTypes = mf.unitType || [];
 
     list = list.filter(r => {
       if (!r) return false;
 
-      // パーク・エリア・施設・階層
-      if (filterPark && r.park !== filterPark) return false;
-      if (filterArea && r.area !== filterArea) return false;
-      if (filterFacility && r.facility !== filterFacility) return false;
-      if (filterFloor && (r.floor || '') !== filterFloor) return false;
+      // パーク・エリア・施設・階層（カテゴリ内は複数選択OR一致、カテゴリ間はAND）
+      if (mf.park.length > 0 && !mf.park.includes(r.park)) return false;
+      if (mf.area.length > 0 && !mf.area.includes(r.area)) return false;
+      if (mf.facility.length > 0 && !mf.facility.includes(r.facility)) return false;
+      if (mf.floor.length > 0 && !mf.floor.includes(r.floor || '')) return false;
 
-      // 空調機種での絞り込み
-      if (filterUnitType) {
-        const subs = r.pacSubtypes || {};
-        const pac = r.pacCount || 0;
-        const hex = r.hexCount || 0;
-        const fcu = r.fcuCount || 0;
-        const other = (r.otherEquipment || '').trim();
-        if (filterUnitType === 'cassette' && !(subs.cassette > 0)) return false;
-        if (filterUnitType === 'floor' && !(subs.floor > 0)) return false;
-        if (filterUnitType === 'ceiling' && !(subs.ceiling > 0)) return false;
-        if (filterUnitType === 'wall' && !(subs.wall > 0)) return false;
-        if (filterUnitType === 'duct' && !(subs.duct > 0)) return false;
-        if (filterUnitType === 'other_pac' && !(subs.other > 0)) return false;
-        if (filterUnitType === 'unknown_pac' && !(subs.unknown > 0)) return false;
-        if (filterUnitType === 'pac_any' && !(pac > 0 || (subs.cassette || 0) + (subs.floor || 0) + (subs.ceiling || 0) + (subs.wall || 0) + (subs.duct || 0) + (subs.other || 0) + (subs.unknown || 0) > 0)) return false;
-        if (filterUnitType === 'hex' && !(hex > 0)) return false;
-        if (filterUnitType === 'fcu' && !(fcu > 0)) return false;
-        if (filterUnitType === 'other' && !other) return false;
-      }
+      // 空調機種での複数選択絞り込み
+      if (filterUnitTypes.length > 0 && !this.recordMatchesUnitTypes(r, filterUnitTypes)) return false;
 
-      // 作業ステータス絞り込み (機種指定時はその機種の完了状態、全体時は部屋全体の完了状態で絞り込み)
+      // 作業ステータス絞り込み (選択機種がある場合は対象機器群の完了状態で判定)
       if (statusFilter !== 'all') {
-        const isDone = this.isRecordTargetCompleted(r, filterUnitType);
+        const isDone = this.isRecordTargetCompleted(r, filterUnitTypes);
         if (statusFilter === 'pending' && isDone) return false;
         if (statusFilter === 'completed' && !isDone) return false;
       }
 
-      // 機材・脚立・アクセス
-      if (filterEquip) {
+      // 機材・脚立・アクセス（複数選択OR）
+      if (mf.equipment.length > 0) {
         const combined = `${r.equipment || ''} ${r.access || ''}`;
-        if (!combined.includes(filterEquip)) return false;
+        if (!mf.equipment.some(kw => combined.includes(kw))) return false;
       }
 
       // 高度なあいまい・部分一致検索 (ひらがな/カタカナ相互一致、全半角正規化、複数ワードAND一致対応)
@@ -3312,12 +3578,12 @@ class HVACApp {
 
     list.sort((a, b) => {
       if (sortOrder === 'pending-first') {
-        const compA = this.isRecordTargetCompleted(a, filterUnitType) ? 1 : 0;
-        const compB = this.isRecordTargetCompleted(b, filterUnitType) ? 1 : 0;
+        const compA = this.isRecordTargetCompleted(a, filterUnitTypes) ? 1 : 0;
+        const compB = this.isRecordTargetCompleted(b, filterUnitTypes) ? 1 : 0;
         if (compA !== compB) return compA - compB; // 未着手(0)が先
       } else if (sortOrder === 'completed-first') {
-        const compA = this.isRecordTargetCompleted(a, filterUnitType) ? 1 : 0;
-        const compB = this.isRecordTargetCompleted(b, filterUnitType) ? 1 : 0;
+        const compA = this.isRecordTargetCompleted(a, filterUnitTypes) ? 1 : 0;
+        const compB = this.isRecordTargetCompleted(b, filterUnitTypes) ? 1 : 0;
         if (compA !== compB) return compB - compA; // 完了(1)が先
       } else if (sortOrder === 'date-desc') {
         return new Date(b.createdAt) - new Date(a.createdAt);
@@ -3353,6 +3619,8 @@ class HVACApp {
 
   // 作業チェックリスト画面のレンダリング
   renderChecklistView() {
+    this.renderCheckFilterButtonsAndChips();
+
     const container = document.getElementById('check-list-container');
     const emptyState = document.getElementById('check-empty-state');
     const countText = document.getElementById('check-list-count-text');
@@ -3370,10 +3638,10 @@ class HVACApp {
     const pendingAll = totalAll - completedAll;
     const percentAll = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
 
-    // フィルタ適用（デフォルトでは全件表示、検索・絞り込み時はあいまい部分一致）
-    const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
+    // フィルタ適用（デフォルトでは全件表示、複数選択・部分一致対応）
+    const filterUnitTypes = this.checkMultiFilters?.unitType || [];
     const filtered = this.getFilteredChecklistRecords();
-    const completedFiltered = filtered.filter(r => this.isRecordTargetCompleted(r, filterUnitType)).length;
+    const completedFiltered = filtered.filter(r => this.isRecordTargetCompleted(r, filterUnitTypes)).length;
     const pendingFiltered = filtered.length - completedFiltered;
 
     // ステータスタブの件数バッジ更新
@@ -3395,7 +3663,7 @@ class HVACApp {
     if (filteredProgressText) {
       if (filtered.length !== totalAll && filtered.length > 0) {
         const filteredPercent = Math.round((completedFiltered / filtered.length) * 100);
-        const targetLabel = filterUnitType ? `対象機種` : `絞込中`;
+        const targetLabel = filterUnitTypes.length > 0 ? `対象機種` : `絞込中`;
         filteredProgressText.textContent = `${targetLabel}: ${filtered.length}件中 ${completedFiltered}件完了 (${filteredPercent}%)`;
       } else {
         filteredProgressText.textContent = '';
@@ -3410,21 +3678,10 @@ class HVACApp {
     const batchCompleteBtn = document.getElementById('check-batch-complete-btn');
     const batchResetBtn = document.getElementById('check-batch-reset-btn');
     if (batchCompleteBtn) {
-      if (filterUnitType) {
-        const typeNames = {
-          cassette: '天カセ',
-          floor: '床置',
-          ceiling: '天吊',
-          wall: '壁掛',
-          duct: '隠蔽ダクト',
-          other_pac: '他PAC',
-          unknown_pac: 'PAC(確認中)',
-          pac_any: 'PAC全機種',
-          hex: '全熱交換器',
-          fcu: 'FCU',
-          other: 'その他機器'
-        };
-        const tName = typeNames[filterUnitType] || filterUnitType;
+      if (filterUnitTypes.length > 0) {
+        const tName = filterUnitTypes.length === 1
+          ? this.getUnitTypeLabel(filterUnitTypes[0])
+          : `選択${filterUnitTypes.length}機種`;
         batchCompleteBtn.innerHTML = `<span>✔️ 表示中の【${tName}】を一括完了にする</span>`;
         if (batchResetBtn) batchResetBtn.innerHTML = `<span>🔄 表示中の【${tName}】を未着手に戻す</span>`;
       } else {
@@ -3466,7 +3723,7 @@ class HVACApp {
   // 作業チェックリスト用アイテムカード生成（機器別チェック対応）
   renderChecklistItem(r) {
     const comp = this.getRecordCompletionSummary(r);
-    const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
+    const filterUnitTypes = this.checkMultiFilters?.unitType || [];
     
     // カードスタイルとメイン特大ボタン
     let cardClass = '';
@@ -3505,7 +3762,7 @@ class HVACApp {
 
     // 機器別チェックチップ群（タップで個別に完了/未着手を即時切替）
     const equipChipsHtml = comp.equips.map(eq => {
-      const isTarget = filterUnitType && (filterUnitType === eq.key || (filterUnitType === 'pac_any' && eq.type === 'pac'));
+      const isTarget = filterUnitTypes.length > 0 && this.equipKeyMatchesFilterArray(eq.key, filterUnitTypes);
       return `
         <button type="button" 
                 class="check-equip-chip ${eq.isDone ? 'is-done' : ''} ${isTarget ? 'is-highlighted' : ''}" 
@@ -3653,34 +3910,20 @@ class HVACApp {
     }
   }
 
-  // 表示中を一括完了 / 一括未着手（空調機種絞り込み時はその機種のみを賢く一括処理）
+  // 表示中を一括完了 / 一括未着手（空調機種複数選択時は選択中の機種のみを賢く一括処理）
   async batchSetChecklistComplete(targetComplete) {
-    const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
+    const filterUnitTypes = this.checkMultiFilters?.unitType || [];
     const filtered = this.getFilteredChecklistRecords();
     
     // 絞り込み機種がある場合とない場合の名称
     let targetName = '全機器';
-    let unitKey = null;
-    if (filterUnitType) {
-      const typeNames = {
-        cassette: '天カセ',
-        floor: '床置',
-        ceiling: '天吊',
-        wall: '壁掛',
-        duct: '隠蔽ダクト',
-        other_pac: 'その他PAC',
-        unknown_pac: 'PAC(確認中)',
-        pac_any: 'PAC全機種',
-        hex: '全熱交換器 (HEX)',
-        fcu: 'ファンコイル (FCU)',
-        other: 'その他機器'
-      };
-      targetName = typeNames[filterUnitType] || filterUnitType;
-      unitKey = filterUnitType;
+    const hasUnitFilter = filterUnitTypes.length > 0;
+    if (hasUnitFilter) {
+      targetName = filterUnitTypes.map(u => this.getUnitTypeLabel(u)).join('・');
     }
 
     const targets = filtered.filter(r => {
-      const isDone = this.isRecordTargetCompleted(r, unitKey);
+      const isDone = this.isRecordTargetCompleted(r, filterUnitTypes);
       return targetComplete ? !isDone : isDone;
     });
 
@@ -3690,7 +3933,7 @@ class HVACApp {
     }
 
     const actionName = targetComplete ? '「作業完了」' : '「未着手」';
-    const confirmMsg = unitKey
+    const confirmMsg = hasUnitFilter
       ? `表示中の ${targets.length} 件において、【${targetName}】のみを一括で ${actionName} に変更しますか？\n（※他の空調機器のステータスは維持されます）`
       : `表示中の ${targets.length} 件を一括で ${actionName} に変更しますか？`;
 
@@ -3708,17 +3951,13 @@ class HVACApp {
         });
       }
 
-      if (unitKey) {
-        // 特定機種のみ対象
-        if (unitKey === 'pac_any') {
-          equips.filter(e => e.type === 'pac').forEach(eq => {
+      if (hasUnitFilter) {
+        // 選択中の機種群のみ対象
+        equips.forEach(eq => {
+          if (this.equipKeyMatchesFilterArray(eq.key, filterUnitTypes)) {
             r.completedEquip[eq.key] = targetComplete;
-          });
-        } else {
-          if (r.completedEquip[unitKey] !== undefined || equips.some(e => e.key === unitKey)) {
-            r.completedEquip[unitKey] = targetComplete;
           }
-        }
+        });
         this.syncRecordCompletion(r);
       } else {
         // 全機器対象

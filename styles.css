@@ -3102,4 +3102,215 @@ body {
   font-weight: 700;
 }
 
+/* ================= 複数選択（マルチセレクト）フィルタ UI ================= */
+.multi-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.multi-filter-btn {
+  appearance: none;
+  background-color: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  color: #e2e8f0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.multi-filter-btn:hover {
+  border-color: rgba(56, 189, 248, 0.6);
+  background-color: rgba(30, 41, 59, 0.95);
+}
+
+.multi-filter-btn.has-selection {
+  background: rgba(14, 165, 233, 0.16);
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
+.mf-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.mf-arrow {
+  font-size: 10px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.multi-filter-btn.has-selection .mf-arrow {
+  color: #38bdf8;
+}
+
+.active-filter-chips-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+}
+
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(2, 132, 199, 0.25);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  color: #e0f2fe;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.active-filter-chip:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #f87171;
+}
+
+.active-filter-chip .afc-close {
+  font-size: 11px;
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+/* 複数選択モーダル */
+.modal-card-multi-filter {
+  max-width: 480px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.multi-filter-toolbar {
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.65);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.multi-filter-quick-row {
+  display: flex;
+  gap: 8px;
+}
+
+.multi-filter-quick-row .btn {
+  flex: 1;
+}
+
+.multi-filter-options-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 46vh;
+}
+
+.mf-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(30, 41, 59, 0.75);
+  border: 1.5px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mf-option-item:hover {
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.mf-option-item.is-selected {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: #38bdf8;
+}
+
+.mf-option-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mf-option-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 2px solid #64748b;
+  background: rgba(15, 23, 42, 0.8);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: transparent;
+  flex-shrink: 0;
+}
+
+.mf-option-item.is-selected .mf-option-check {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.mf-option-texts {
+  min-width: 0;
+  flex: 1;
+}
+
+.mf-option-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f1f5f9;
+  word-break: break-word;
+}
+
+.mf-option-sub {
+  font-size: 10.5px;
+  color: #94a3b8;
+  display: block;
+}
+
+.mf-option-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.multi-filter-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+
 
