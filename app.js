@@ -965,7 +965,22 @@ class HVACApp {
       this.batchSetChecklistComplete(false);
     });
 
-    // シート出力タブ: まとめ方（4種類のシート形式）切替
+    // 作業チェック画面からの印刷・シート出力連携
+    document.getElementById('check-open-print-btn')?.addEventListener('click', () => {
+      this.openChecklistPrintPreview('checklist');
+    });
+    document.getElementById('check-goto-sheet-btn')?.addEventListener('click', () => {
+      const srcSel = document.getElementById('export-filter-source');
+      if (srcSel) srcSel.value = 'checklist';
+      this.exportSheetMode = 'checklist_print';
+      document.querySelectorAll('#export-mode-tabs .view-mode-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.exportMode === 'checklist_print');
+      });
+      this.switchTab('tab-export');
+      this.renderSpreadsheetPreview();
+    });
+
+    // シート出力タブ: まとめ方（5種類のシート形式）切替
     document.querySelectorAll('#export-mode-tabs .view-mode-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('#export-mode-tabs .view-mode-btn').forEach(b => b.classList.remove('active'));
@@ -975,19 +990,40 @@ class HVACApp {
       });
     });
 
-    document.getElementById('export-use-filter-toggle')?.addEventListener('change', () => {
+    document.getElementById('export-filter-source')?.addEventListener('change', () => {
+      this.renderSpreadsheetPreview();
+    });
+    document.getElementById('export-check-mark-mode')?.addEventListener('change', () => {
       this.renderSpreadsheetPreview();
     });
 
-    // スプレッドシート出力
+    // スプレッドシート出力・チェック表印刷
+    document.getElementById('export-print-checklist-btn')?.addEventListener('click', () => {
+      const src = document.getElementById('export-filter-source')?.value || 'list';
+      const chkMode = document.getElementById('export-check-mark-mode')?.value || 'blank';
+      this.openChecklistPrintPreview(src, chkMode);
+    });
     document.getElementById('copy-tsv-btn').addEventListener('click', () => this.copyToClipboardTSV());
     document.getElementById('download-csv-btn').addEventListener('click', () => this.downloadCSV());
     document.getElementById('download-xlsx-btn').addEventListener('click', () => this.downloadXLSX());
     document.getElementById('export-json-btn').addEventListener('click', () => this.exportJSON());
     document.getElementById('import-json-input').addEventListener('change', (e) => this.importJSON(e));
 
-    // 印刷
-    document.getElementById('print-report-btn').addEventListener('click', () => window.print());
+    // A4縦 作業チェック表 印刷プレビューモーダル操作
+    document.getElementById('close-print-modal-btn')?.addEventListener('click', () => this.closeChecklistPrintPreview());
+    document.getElementById('cancel-print-modal-btn')?.addEventListener('click', () => this.closeChecklistPrintPreview());
+    document.getElementById('checklist-print-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'checklist-print-modal') this.closeChecklistPrintPreview();
+    });
+    document.getElementById('print-modal-source-select')?.addEventListener('change', () => this.renderChecklistPrintPreview());
+    document.getElementById('print-modal-check-select')?.addEventListener('change', () => this.renderChecklistPrintPreview());
+    document.getElementById('exec-checklist-print-btn')?.addEventListener('click', () => this.executeChecklistPrint());
+
+    // 写真付きカルテ印刷（通常印刷モードを保証）
+    document.getElementById('print-report-btn').addEventListener('click', () => {
+      document.body.classList.remove('printing-checklist');
+      window.print();
+    });
 
     // 写真拡大モーダル
     document.getElementById('close-modal-btn').addEventListener('click', () => {
@@ -2368,13 +2404,60 @@ class HVACApp {
     `;
   }
 
-  // ================= 9. スプレッドシート連携（4種のまとめ方シート出力＆フィルタ連動） =================
-  getTargetRecordsForExport() {
-    const useFilter = document.getElementById('export-use-filter-toggle')?.checked ?? true;
-    return this.getFilteredAndSortedRecords(!useFilter);
+  // ================= 9. スプレッドシート連携（5種のまとめ方シート出力・A4縦印刷対応） =================
+  getExportContextInfo(overrideSource = null) {
+    const source = overrideSource || document.getElementById('export-filter-source')?.value || 'list';
+    if (source === 'checklist') {
+      const records = this.getFilteredChecklistRecords();
+      const filterUnitType = document.getElementById('check-filter-unit-type')?.value || '';
+      const filterPark = document.getElementById('check-filter-park')?.value || '';
+      const filterArea = document.getElementById('check-filter-area')?.value || '';
+      const filterFacility = document.getElementById('check-filter-facility')?.value || '';
+      const status = this.checkStatusFilter || 'all';
+      const parts = [];
+      if (status === 'pending') parts.push('未着手のみ');
+      else if (status === 'completed') parts.push('完了済みのみ');
+      if (filterPark) parts.push(`パーク=${filterPark}`);
+      if (filterArea) parts.push(`エリア=${filterArea}`);
+      if (filterFacility) parts.push(`施設=${filterFacility}`);
+      if (filterUnitType) {
+        const typeNames = {
+          cassette: 'PAC(天カセ)', floor: 'PAC(床置)', ceiling: 'PAC(天吊)', wall: 'PAC(壁掛)',
+          duct: 'PAC(隠蔽ダクト)', other_pac: 'PAC(他)', unknown_pac: 'PAC(確認中)',
+          pac_any: 'PAC全種', hex: '全熱交換器(HEX)', fcu: 'FCU', other: 'その他'
+        };
+        parts.push(`機種=${typeNames[filterUnitType] || filterUnitType}`);
+      }
+      return {
+        source,
+        records,
+        filterUnitType,
+        conditionLabel: parts.length > 0 ? parts.join(' / ') : '作業チェック全件'
+      };
+    }
+    if (source === 'all') {
+      return {
+        source,
+        records: this.getFilteredAndSortedRecords(true),
+        filterUnitType: '',
+        conditionLabel: '登録データ全件'
+      };
+    }
+    // デフォルト: list (階層リストタブの条件)
+    const unitSel = document.getElementById('filter-unit-type-select')?.value || '';
+    return {
+      source: 'list',
+      records: this.getFilteredAndSortedRecords(false),
+      filterUnitType: unitSel,
+      conditionLabel: this.hasActiveFilters() ? '階層リスト絞込中' : '全件対象'
+    };
   }
 
-  getExpandedRows(sourceRecords = null) {
+  getTargetRecordsForExport(overrideSource = null) {
+    return this.getExportContextInfo(overrideSource).records;
+  }
+
+  getExpandedRows(sourceRecords = null, filterUnitType = '') {
     const targetList = sourceRecords || this.getTargetRecordsForExport();
     const expanded = [];
     let no = 1;
@@ -2397,30 +2480,44 @@ class HVACApp {
       const cUnk = subs.unknown || 0;
 
       let pacHandled = false;
-      if (cCas > 0) { items.push({ key: 'cassette', type: 'パッケージ (天カセ)', count: `${cCas}台`, num: cCas }); pacHandled = true; }
-      if (cFloor > 0) { items.push({ key: 'floor', type: 'パッケージ (床置き)', count: `${cFloor}台`, num: cFloor }); pacHandled = true; }
-      if (cCeil > 0) { items.push({ key: 'ceiling', type: 'パッケージ (天吊り)', count: `${cCeil}台`, num: cCeil }); pacHandled = true; }
-      if (cWall > 0) { items.push({ key: 'wall', type: 'パッケージ (壁掛け)', count: `${cWall}台`, num: cWall }); pacHandled = true; }
-      if (cDuct > 0) { items.push({ key: 'duct', type: 'パッケージ (隠蔽ダクト)', count: `${cDuct}台`, num: cDuct }); pacHandled = true; }
-      if (cOth > 0) { items.push({ key: 'other_pac', type: 'パッケージ (その他)', count: `${cOth}台`, num: cOth }); pacHandled = true; }
-      if (cUnk > 0) { items.push({ key: 'unknown_pac', type: 'パッケージ (種別確認中)', count: `${cUnk}台`, num: cUnk }); pacHandled = true; }
+      if (cCas > 0) { items.push({ key: 'cassette', typeGroup: 'pac', type: 'パッケージ (天カセ)', count: `${cCas}台`, num: cCas }); pacHandled = true; }
+      if (cFloor > 0) { items.push({ key: 'floor', typeGroup: 'pac', type: 'パッケージ (床置き)', count: `${cFloor}台`, num: cFloor }); pacHandled = true; }
+      if (cCeil > 0) { items.push({ key: 'ceiling', typeGroup: 'pac', type: 'パッケージ (天吊り)', count: `${cCeil}台`, num: cCeil }); pacHandled = true; }
+      if (cWall > 0) { items.push({ key: 'wall', typeGroup: 'pac', type: 'パッケージ (壁掛け)', count: `${cWall}台`, num: cWall }); pacHandled = true; }
+      if (cDuct > 0) { items.push({ key: 'duct', typeGroup: 'duct', type: 'パッケージ (隠蔽ダクト)', count: `${cDuct}台`, num: cDuct }); pacHandled = true; }
+      if (cOth > 0) { items.push({ key: 'other_pac', typeGroup: 'pac', type: 'パッケージ (その他)', count: `${cOth}台`, num: cOth }); pacHandled = true; }
+      if (cUnk > 0) { items.push({ key: 'unknown_pac', typeGroup: 'pac', type: 'パッケージ (種別確認中)', count: `${cUnk}台`, num: cUnk }); pacHandled = true; }
 
       if (!pacHandled && pac > 0) {
-        items.push({ key: 'pac', type: 'パッケージ (PAC)', count: `${pac}台`, num: pac });
+        items.push({ key: 'pac', typeGroup: 'pac', type: 'パッケージ (PAC)', count: `${pac}台`, num: pac });
       }
 
-      if (hex > 0) items.push({ key: 'hex', type: '全熱交換器 (HEX)', count: `${hex}台`, num: hex });
-      if (fcu > 0) items.push({ key: 'fcu', type: 'ファンコイル (FCU)', count: `${fcu}台`, num: fcu });
-      if (other) items.push({ key: 'other', type: 'その他機器', count: other, num: 1 });
+      if (hex > 0) items.push({ key: 'hex', typeGroup: 'hex', type: '全熱交換器 (HEX)', count: `${hex}台`, num: hex });
+      if (fcu > 0) items.push({ key: 'fcu', typeGroup: 'fcu', type: 'ファンコイル (FCU)', count: `${fcu}台`, num: fcu });
+      if (other) items.push({ key: 'other', typeGroup: 'other', type: 'その他機器', count: other, num: 1 });
 
       if (items.length === 0) {
-        items.push({ key: null, type: '空調機未登録', count: '-', num: 0 });
+        items.push({ key: null, typeGroup: 'other', type: '空調機未登録', count: '-', num: 0 });
       }
 
-      items.forEach((item) => {
+      // 対象機種の絞り込みがある場合は該当機器のみ抽出
+      const finalItems = filterUnitType
+        ? items.filter(it => {
+            if (filterUnitType === 'pac_any') {
+              return ['cassette', 'floor', 'ceiling', 'wall', 'duct', 'other_pac', 'unknown_pac', 'pac'].includes(it.key);
+            }
+            return it.key === filterUnitType;
+          })
+        : items;
+
+      finalItems.forEach((item, idxInRoom) => {
         const itemCompleted = item.key ? this.isEquipCompleted(r, item.key) : !!r.completed;
         expanded.push({
           no: no++,
+          recordId: r.id,
+          isRoomStart: idxInRoom === 0,
+          equipKey: item.key,
+          typeGroup: item.typeGroup,
           completed: itemCompleted,
           completedAt: r.completedAt || null,
           park: r.park,
@@ -2430,6 +2527,7 @@ class HVACApp {
           room: r.room,
           equipType: item.type,
           equipCount: item.count,
+          equipNum: item.num,
           equipment: r.equipment || '',
           access: r.access || '',
           entrancePhotos: p.entrance,
@@ -2447,13 +2545,57 @@ class HVACApp {
     return expanded;
   }
 
-  // 4種類のシート形式（①機器別詳細 / ②部屋別1行まとめ / ③施設・階層別集計 / ④機種・仕様別集計）のデータ生成
-  buildSheetDataset(mode, sourceRecords = null) {
-    const records = sourceRecords || this.getTargetRecordsForExport();
+  // 5種類のシート形式（⑤作業チェック表 / ①機器別詳細 / ②部屋別1行まとめ / ③施設・階層別集計 / ④機種・仕様別集計）のデータ生成
+  buildSheetDataset(mode, sourceRecords = null, overrideFilterUnit = null, overrideCheckMode = null) {
+    const ctx = this.getExportContextInfo();
+    const records = sourceRecords || ctx.records;
+    const filterUnit = overrideFilterUnit !== null ? overrideFilterUnit : ctx.filterUnitType;
+    const checkMode = overrideCheckMode || document.getElementById('export-check-mark-mode')?.value || 'blank';
+
+    // ⑤ 作業チェック表（A4縦・紙＆スプレッドシートチェック欄付・フィルター仕様なし・必要なもの＆備考重視）
+    if (mode === 'checklist_print') {
+      const exp = this.getExpandedRows(records, filterUnit);
+      const headers = [
+        '済', 'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
+        '点検対象機器', '台数', '必要なもの', 'アクセス方法', '備考・特記事項', '現場メモ / 作業日時'
+      ];
+      const rows = exp.map(r => {
+        const isChecked = (checkMode === 'sync') && r.completed;
+        let memoCell = '';
+        if (isChecked && r.completedAt) {
+          try {
+            const d = new Date(r.completedAt);
+            memoCell = `済 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+          } catch (e) {
+            memoCell = '済';
+          }
+        }
+        return [
+          isChecked ? '☑' : '□',
+          r.no,
+          r.park,
+          r.area || '-',
+          r.facility || '-',
+          r.floor || '-',
+          r.isRoomStart ? r.room : '〃 (同部屋)',
+          r.equipType,
+          r.equipCount,
+          r.equipment || '-',
+          r.access || '-',
+          r.notes || '',
+          memoCell
+        ];
+      });
+      const colWidths = [
+        { wch: 5 }, { wch: 5 }, { wch: 7 }, { wch: 18 }, { wch: 22 }, { wch: 7 }, { wch: 18 },
+        { wch: 20 }, { wch: 8 }, { wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 18 }
+      ];
+      return { sheetName: '⑤作業チェック表', title: '☑️ ⑤ 作業チェック表 (A4縦・紙＆シート用)', headers, rows, colWidths };
+    }
 
     // ① 機器別詳細リスト（20列・作業状況列付）
     if (mode === 'expanded') {
-      const exp = this.getExpandedRows(records);
+      const exp = this.getExpandedRows(records, filterUnit);
       const headers = [
         'No', '作業状況', '完了日時', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
         '空調機種別', '台数', '作業に必要なもの', 'アクセス方法',
@@ -2609,19 +2751,23 @@ class HVACApp {
     const filterBadge = document.getElementById('export-active-filter-badge');
     if (!tbody || !thead) return;
 
-    const targetRecords = this.getTargetRecordsForExport();
-    const useFilter = document.getElementById('export-use-filter-toggle')?.checked ?? true;
+    const ctx = this.getExportContextInfo();
+    const targetRecords = ctx.records;
+
     if (filterBadge) {
-      if (useFilter && this.hasActiveFilters()) {
-        filterBadge.textContent = `🔍 絞り込み適用中 (${targetRecords.length}/${this.records.length}室)`;
+      if (ctx.source === 'checklist') {
+        filterBadge.textContent = `✅ 作業チェック連動 (${targetRecords.length}/${this.records.length}室)`;
+        filterBadge.className = 'badge badge-success';
+      } else if (ctx.source === 'list' && this.hasActiveFilters()) {
+        filterBadge.textContent = `🔍 階層リスト絞込中 (${targetRecords.length}/${this.records.length}室)`;
         filterBadge.className = 'badge badge-success';
       } else {
-        filterBadge.textContent = `全件対象 (${this.records.length}室)`;
+        filterBadge.textContent = `全件対象 (${targetRecords.length}室)`;
         filterBadge.className = 'badge';
       }
     }
 
-    const dataset = this.buildSheetDataset(this.exportSheetMode, targetRecords);
+    const dataset = this.buildSheetDataset(this.exportSheetMode, targetRecords, ctx.filterUnitType);
     if (titleEl) {
       titleEl.innerHTML = `${dataset.title} (全 <span id="preview-row-count">${dataset.rows.length}</span> 行)`;
     }
@@ -2637,6 +2783,15 @@ class HVACApp {
       <tr>
         ${row.map((cell, idx) => {
           const val = this.escapeHtml(String(cell ?? ''));
+          if (this.exportSheetMode === 'checklist_print') {
+            if (idx === 0) {
+              const isChk = val === '☑';
+              return `<td style="text-align:center; font-size:15px; font-weight:800; color:${isChk ? '#34d399' : '#e2e8f0'};">${val}</td>`;
+            }
+            if (idx === 7) return `<td style="color:#38bdf8; font-weight:700;">${val}</td>`;
+            if (idx === 8) return `<td style="text-align:center; color:#fbbf24; font-weight:700;">${val}</td>`;
+            if (idx === 9) return `<td style="color:#fb923c; font-weight:600;">${val}</td>`;
+          }
           if (idx === 6 && this.exportSheetMode === 'expanded') {
             return `<td style="color:#38bdf8; font-weight:700;">● ${val}</td>`;
           }
@@ -2716,9 +2871,10 @@ class HVACApp {
     this.showToast(`📥 CSV (${dataset.sheetName}) を保存しました`);
   }
 
-  // Excelダウンロード（全4種類のまとめ方シートを1つのExcelブックに一括収録！）
+  // Excelダウンロード（全5種類のまとめ方シートを1つのExcelブックに一括収録！）
   downloadXLSX() {
-    const targetRecords = this.getTargetRecordsForExport();
+    const ctx = this.getExportContextInfo();
+    const targetRecords = ctx.records;
     if (targetRecords.length === 0) {
       this.showToast('ダウンロードするデータがありません', true);
       return;
@@ -2731,21 +2887,171 @@ class HVACApp {
     }
 
     const wb = XLSX.utils.book_new();
+    const allModes = ['checklist_print', 'expanded', 'room_summary', 'facility_summary', 'equip_summary'];
     const modesOrder = [
       this.exportSheetMode,
-      ...['expanded', 'room_summary', 'facility_summary', 'equip_summary'].filter(m => m !== this.exportSheetMode)
+      ...allModes.filter(m => m !== this.exportSheetMode)
     ];
 
     modesOrder.forEach(mode => {
-      const ds = this.buildSheetDataset(mode, targetRecords);
+      const ds = this.buildSheetDataset(mode, targetRecords, ctx.filterUnitType);
       const aoa = [ds.headers, ...ds.rows];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = ds.colWidths;
       XLSX.utils.book_append_sheet(wb, ws, ds.sheetName);
     });
 
-    XLSX.writeFile(wb, `TDR_空調設備現場リスト_全4種集計入_${this.getFormattedDate()}.xlsx`);
-    this.showToast('📗 全4シート収録のExcelファイルをダウンロードしました！');
+    XLSX.writeFile(wb, `TDR_空調設備現場リスト_全5種集計チェック表入_${this.getFormattedDate()}.xlsx`);
+    this.showToast('📗 全5シート収録のExcelファイルをダウンロードしました！');
+  }
+
+  // ================= A4縦 紙ベース作業チェックリスト プレビュー＆印刷 =================
+  openChecklistPrintPreview(defaultSource = null, defaultCheckMode = null) {
+    const modal = document.getElementById('checklist-print-modal');
+    const srcSel = document.getElementById('print-modal-source-select');
+    const chkSel = document.getElementById('print-modal-check-select');
+    if (!modal) return;
+
+    if (srcSel && defaultSource) srcSel.value = defaultSource;
+    if (chkSel && defaultCheckMode) chkSel.value = defaultCheckMode;
+
+    this.renderChecklistPrintPreview();
+    modal.classList.remove('hidden');
+  }
+
+  closeChecklistPrintPreview() {
+    document.getElementById('checklist-print-modal')?.classList.add('hidden');
+  }
+
+  buildChecklistPrintHtml(sourceType, checkMarkMode) {
+    const ctx = this.getExportContextInfo(sourceType);
+    const expRows = this.getExpandedRows(ctx.records, ctx.filterUnitType);
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+    const roomSet = new Set(expRows.map(r => r.recordId));
+    const totalUnits = expRows.reduce((sum, r) => sum + (r.equipNum || 0), 0);
+    const doneCount = checkMarkMode === 'sync' ? expRows.filter(r => r.completed).length : 0;
+
+    if (expRows.length === 0) {
+      return `
+        <div style="padding:30px; text-align:center; color:#475569; font-size:11pt;">
+          <strong>対象となる作業データがありません。</strong><br>
+          絞り込み条件を変更してから再度お試しください。
+        </div>
+      `;
+    }
+
+    const rowsHtml = expRows.map(r => {
+      const isChecked = (checkMarkMode === 'sync') && r.completed;
+      const rowClasses = [
+        r.isRoomStart ? 'row-room-start' : '',
+        isChecked ? 'row-done' : ''
+      ].filter(Boolean).join(' ');
+
+      let memoHtml = '<div class="paper-memo-line"></div>';
+      if (isChecked && r.completedAt) {
+        try {
+          const d = new Date(r.completedAt);
+          const timeStr = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+          memoHtml = `<span class="paper-memo-done">済 ${timeStr}</span>`;
+        } catch (e) {
+          memoHtml = `<span class="paper-memo-done">済</span>`;
+        }
+      }
+
+      const locHtml = r.isRoomStart
+        ? `<span class="paper-loc-sub">[${this.escapeHtml(r.park)}] ${this.escapeHtml(r.area)} / ${this.escapeHtml(r.facility)}</span>
+           <span class="paper-loc-main">${r.floor ? `${this.escapeHtml(r.floor)} ` : ''}${this.escapeHtml(r.room)}</span>`
+        : `<span class="paper-loc-cont">〃（同部屋）</span>`;
+
+      return `
+        <tr class="${rowClasses}">
+          <td class="col-chk"><span class="paper-checkbox ${isChecked ? 'checked' : ''}">${isChecked ? '✔' : ''}</span></td>
+          <td class="col-no">${r.no}</td>
+          <td class="col-loc">${locHtml}</td>
+          <td class="col-eqp">
+            <span class="paper-equip-pill ${r.typeGroup}">${this.escapeHtml(r.equipType)}</span>
+            <span class="paper-equip-count">${this.escapeHtml(r.equipCount)}</span>
+          </td>
+          <td class="col-req">
+            <span class="paper-req-gear">${r.equipment ? this.escapeHtml(r.equipment) : '-'}</span>
+            ${r.access ? `<span class="paper-req-access">(${this.escapeHtml(r.access)})</span>` : ''}
+          </td>
+          <td class="col-nte"><span class="paper-notes-text">${this.escapeHtml(r.notes || '-')}</span></td>
+          <td class="col-mem">${memoHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="a4-sheet-header">
+        <div>
+          <h2 class="a4-sheet-title">TDR 空調設備 作業チェックリスト</h2>
+          <div class="a4-sheet-meta">
+            抽出条件: ${this.escapeHtml(ctx.conditionLabel)}　／　出力日: ${dateStr}
+          </div>
+        </div>
+        <table class="a4-sign-box">
+          <tr><th>実施日</th><th>作業班 / 担当</th><th>完了確認</th></tr>
+          <tr><td>　/　/</td><td></td><td>${checkMarkMode === 'sync' ? doneCount : '　'} / ${expRows.length} 件</td></tr>
+        </table>
+      </div>
+
+      <div class="a4-summary-strip">
+        <span>対象合計: ${roomSet.size}部屋 / ${expRows.length}機器 (計 ${totalUnits}台)</span>
+        <span>${checkMarkMode === 'sync' ? `現在完了: ${doneCount}件 / 未着手: ${expRows.length - doneCount}件` : '□ チェック欄空欄モード（紙記入用）'}</span>
+      </div>
+
+      <table class="a4-print-table">
+        <thead>
+          <tr>
+            <th class="col-chk">済</th>
+            <th class="col-no">No</th>
+            <th class="col-loc">場所 (施設 / 階 / 部屋)</th>
+            <th class="col-eqp">点検対象機器・台数</th>
+            <th class="col-req">必要なもの / アクセス</th>
+            <th class="col-nte">備考・特記事項</th>
+            <th class="col-mem">現場確認・メモ</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+  }
+
+  renderChecklistPrintPreview() {
+    const src = document.getElementById('print-modal-source-select')?.value || 'checklist';
+    const chkMode = document.getElementById('print-modal-check-select')?.value || 'blank';
+    const html = this.buildChecklistPrintHtml(src, chkMode);
+
+    const previewEl = document.getElementById('checklist-print-preview-sheet');
+    if (previewEl) previewEl.innerHTML = html;
+
+    const printArea = document.getElementById('checklist-print-area');
+    if (printArea) printArea.innerHTML = `<div class="a4-portrait-sheet">${html}</div>`;
+  }
+
+  executeChecklistPrint() {
+    this.renderChecklistPrintPreview();
+    document.body.classList.add('printing-checklist');
+
+    const cleanup = () => {
+      document.body.classList.remove('printing-checklist');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    // 印刷ダイアログ起動
+    setTimeout(() => {
+      window.print();
+      // iOS Safari等で afterprint が遅れるケースのフォールバック解除
+      setTimeout(() => {
+        document.body.classList.remove('printing-checklist');
+      }, 3000);
+    }, 80);
   }
 
   // JSONバックアップ & 復元

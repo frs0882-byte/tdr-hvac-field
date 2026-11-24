@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-6.png?v=8">
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-6.png?v=8">
   <title>TDR空調設備 現場リスト管理</title>
-  <link rel="stylesheet" href="styles.css?v=25">
+  <link rel="stylesheet" href="styles.css?v=26">
   <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -693,6 +693,16 @@
               <span>🔄 表示中を未着手に戻す</span>
             </button>
           </div>
+
+          <!-- 紙チェック表印刷・シート出力連携バー -->
+          <div class="check-paper-export-row mt-2">
+            <button type="button" id="check-open-print-btn" class="btn btn-sm btn-paper-print">
+              <span>🖨️ 表示中をA4縦チェック表で印刷 / PDF</span>
+            </button>
+            <button type="button" id="check-goto-sheet-btn" class="btn btn-sm btn-sub">
+              <span>📊 シート出力へ</span>
+            </button>
+          </div>
         </div>
 
         <!-- フィルタ・絞り込みカード -->
@@ -821,7 +831,7 @@
             <h2>スプレッドシート連携・出力</h2>
           </div>
           <p class="section-desc">
-            出力する前に「まとめ方（4種類の表形式）」や「フィルタ・並べ替え条件の適用」を切り替えてプレビュー確認できます。Excel出力(.xlsx)では全4シートを一括出力します。
+            出力する前に「まとめ方（5種類の表形式）」や「フィルタ・並べ替え条件の適用」を切り替えてプレビュー確認できます。Excel出力(.xlsx)では全5シートを一括出力します。
           </p>
 
           <!-- 出力前のまとめ方（シート形式）選択タブ -->
@@ -832,18 +842,41 @@
               <button type="button" class="view-mode-btn" data-export-mode="room_summary">🏢 ② 部屋別まとめ (1行)</button>
               <button type="button" class="view-mode-btn" data-export-mode="facility_summary">🏰 ③ 施設・階層別集計</button>
               <button type="button" class="view-mode-btn" data-export-mode="equip_summary">❄️ ④ 機種・仕様別集計</button>
+              <button type="button" class="view-mode-btn view-mode-btn-highlight" data-export-mode="checklist_print">☑️ ⑤ 作業チェック表 (A4縦/紙用)</button>
             </div>
-            <div class="export-filter-sync-row mt-2">
-              <label class="checkbox-label">
-                <input type="checkbox" id="export-use-filter-toggle" checked>
-                <span>🔍 「階層リスト」タブで設定中のフィルタ・並べ替え条件を反映する</span>
-              </label>
-              <span id="export-active-filter-badge" class="badge">全件対象</span>
+            
+            <!-- 絞り込み連動＆チェック欄オプション -->
+            <div class="export-options-panel mt-2">
+              <div class="export-option-row">
+                <label class="export-opt-label" for="export-filter-source">🔍 対象データ:</label>
+                <select id="export-filter-source" class="form-select select-sm">
+                  <option value="list">「階層リスト」タブの条件を反映</option>
+                  <option value="checklist">✅「作業チェック」タブの条件を反映</option>
+                  <option value="all">絞り込みなし（全データ対象）</option>
+                </select>
+                <span id="export-active-filter-badge" class="badge">全件対象</span>
+              </div>
+              <div class="export-option-row mt-2" id="export-check-mark-option-row">
+                <label class="export-opt-label" for="export-check-mark-mode">☑️ チェック欄(□):</label>
+                <select id="export-check-mark-mode" class="form-select select-sm">
+                  <option value="blank">□ すべて空欄で出力（紙に配布・手書き用）</option>
+                  <option value="sync">☑ ツールの完了済みを反映して出力</option>
+                </select>
+              </div>
             </div>
           </div>
 
           <!-- アクションボタングリッド -->
           <div class="export-btn-grid">
+            <!-- 0. 紙ベースA4縦印刷・PDF保存 (新設) -->
+            <button type="button" id="export-print-checklist-btn" class="btn btn-export btn-print-checklist">
+              <span class="btn-icon">🖨️</span>
+              <div class="btn-text">
+                <strong>作業チェック表をA4縦で印刷 / PDF保存</strong>
+                <small>白背景・必要なもの＆備考入りの紙用A4縦レイアウトをプレビューして印刷</small>
+              </div>
+            </button>
+
             <!-- 1. クリップボードにコピー (一番使いやすい) -->
             <button type="button" id="copy-tsv-btn" class="btn btn-export btn-tsv">
               <span class="btn-icon">📋</span>
@@ -857,8 +890,8 @@
             <button type="button" id="download-xlsx-btn" class="btn btn-export btn-xlsx">
               <span class="btn-icon">📗</span>
               <div class="btn-text">
-                <strong>Excel形式 (.xlsx) ダウンロード (全4シート収録)</strong>
-                <small>①機器別詳細 / ②部屋別まとめ / ③施設・階層別集計 / ④機種別集計 の4シート一括出力</small>
+                <strong>Excel形式 (.xlsx) ダウンロード (全5シート収録)</strong>
+                <small>⑤作業チェック表 / ①機器別詳細 / ②部屋別まとめ / ③施設別 / ④機種別 の5シート一括出力</small>
               </div>
             </button>
 
@@ -1006,20 +1039,59 @@
       </div>
     </div>
 
+    <!-- A4縦 作業チェックリスト 印刷プレビューモーダル -->
+    <div id="checklist-print-modal" class="modal-overlay hidden no-print">
+      <div class="modal-card modal-card-print-preview">
+        <div class="modal-header">
+          <h3>🖨️ A4縦 作業チェック表 プレビュー</h3>
+          <button type="button" id="close-print-modal-btn" class="btn-clear">✕</button>
+        </div>
+        <div class="print-modal-controls">
+          <div class="print-ctrl-row">
+            <label class="print-ctrl-label" for="print-modal-source-select">対象:</label>
+            <select id="print-modal-source-select" class="form-select select-sm">
+              <option value="checklist">✅ 作業チェックの絞込条件</option>
+              <option value="list">🔍 階層リストの絞込条件</option>
+              <option value="all">📋 登録データ全件</option>
+            </select>
+          </div>
+          <div class="print-ctrl-row mt-2">
+            <label class="print-ctrl-label" for="print-modal-check-select">チェック欄:</label>
+            <select id="print-modal-check-select" class="form-select select-sm">
+              <option value="blank">□ すべて空欄（紙で新規記入用）</option>
+              <option value="sync">☑ ツールの完了状況を反映</option>
+            </select>
+          </div>
+        </div>
+        <div class="print-preview-viewport">
+          <div id="checklist-print-preview-sheet" class="a4-portrait-sheet">
+            <!-- JSで動的描画 -->
+          </div>
+        </div>
+        <div class="modal-footer print-modal-footer">
+          <button type="button" id="exec-checklist-print-btn" class="btn btn-primary btn-block">🖨️ このA4縦シートを印刷 / PDF保存</button>
+          <button type="button" id="cancel-print-modal-btn" class="btn btn-sub btn-block mt-2">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <!-- トースト通知 -->
     <div id="toast" class="toast hidden"></div>
   </div>
 
+  <!-- A4縦 作業チェックリスト 印刷専用コンテナ（印刷時のみ可視化） -->
+  <div id="checklist-print-area" class="checklist-print-area"></div>
+
   <!-- QRコード生成ライブラリ (完全オフライン対応) -->
   <script src="qrcode.min.js"></script>
   <!-- マスターデータとアプリケーションスクリプト -->
-  <script src="master-data.js?v=25"></script>
-  <script src="app.js?v=25"></script>
+  <script src="master-data.js?v=26"></script>
+  <script src="app.js?v=26"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const reg = await navigator.serviceWorker.register('./service-worker.js?v=25', { updateViaCache: 'none' });
+          const reg = await navigator.serviceWorker.register('./service-worker.js?v=26', { updateViaCache: 'none' });
           if (reg && reg.update) reg.update();
         } catch (err) {
           console.warn('SW registration failed:', err);
