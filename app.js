@@ -2560,12 +2560,12 @@ class HVACApp {
     const filterUnit = overrideFilterUnit !== null ? overrideFilterUnit : ctx.filterUnitType;
     const checkMode = overrideCheckMode || document.getElementById('export-check-mark-mode')?.value || 'blank';
 
-    // ⑤ 作業チェック表（A4縦・紙＆スプレッドシートチェック欄付・フィルター仕様なし・必要なもの＆備考重視）
+    // ⑤ 作業チェック表（A4縦・紙＆スプレッドシートチェック欄付・施設と部屋名メイン・フィルター仕様なし）
     if (mode === 'checklist_print') {
       const exp = this.getExpandedRows(records, filterUnit);
       const headers = [
-        '済', 'No', 'パーク', 'エリア', '施設/アトラクション', '階層', '部屋名',
-        '点検対象機器', '台数', '必要なもの', 'アクセス方法', '備考・特記事項', '現場メモ / 作業日時'
+        '済', 'No', '施設/アトラクション', '階層', '部屋名',
+        '点検対象機器', '台数', '必要なもの', 'アクセス方法', '備考・特記事項', '現場メモ / 作業日時', 'パーク', 'エリア'
       ];
       const rows = exp.map(r => {
         const isChecked = (checkMode === 'sync') && r.completed;
@@ -2581,24 +2581,24 @@ class HVACApp {
         return [
           isChecked ? '☑' : '□',
           r.no,
-          r.park,
-          r.area || '-',
           r.facility || '-',
           r.floor || '-',
-          r.isRoomStart ? r.room : '〃 (同部屋)',
+          r.room || '-',
           r.equipType,
           r.equipCount,
           r.equipment || '-',
           r.access || '-',
           r.notes || '',
-          memoCell
+          memoCell,
+          r.park,
+          r.area || '-'
         ];
       });
       const colWidths = [
-        { wch: 5 }, { wch: 5 }, { wch: 7 }, { wch: 18 }, { wch: 22 }, { wch: 7 }, { wch: 18 },
-        { wch: 20 }, { wch: 8 }, { wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 18 }
+        { wch: 5 }, { wch: 5 }, { wch: 24 }, { wch: 7 }, { wch: 22 },
+        { wch: 20 }, { wch: 8 }, { wch: 22 }, { wch: 20 }, { wch: 26 }, { wch: 16 }, { wch: 7 }, { wch: 18 }
       ];
-      return { sheetName: '⑤作業チェック表', title: '☑️ ⑤ 作業チェック表 (A4縦・紙＆シート用)', headers, rows, colWidths };
+      return { sheetName: '⑤作業チェック表', title: '☑️ ⑤ 作業チェック表 (施設・部屋名メイン / A4縦用)', headers, rows, colWidths };
     }
 
     // ① 機器別詳細リスト（20列・作業状況列付）
@@ -2787,29 +2787,57 @@ class HVACApp {
       return;
     }
 
-    tbody.innerHTML = dataset.rows.map(row => `
-      <tr>
+    let prevFacility = null;
+    tbody.innerHTML = dataset.rows.map(row => {
+      // モードごとの施設列・部屋列・階層列インデックス
+      let facIdx = -1, floorIdx = -1, roomIdx = -1;
+      if (this.exportSheetMode === 'checklist_print') {
+        facIdx = 2; floorIdx = 3; roomIdx = 4;
+      } else if (this.exportSheetMode === 'expanded') {
+        facIdx = 5; floorIdx = 6; roomIdx = 7;
+      } else if (this.exportSheetMode === 'room_summary') {
+        facIdx = 5; floorIdx = 6; roomIdx = 7;
+      } else if (this.exportSheetMode === 'facility_summary') {
+        facIdx = 3; floorIdx = 4;
+      }
+
+      const currentFac = facIdx >= 0 ? String(row[facIdx] ?? '') : null;
+      const isFacStart = (facIdx >= 0 && prevFacility !== null && currentFac !== prevFacility);
+      if (facIdx >= 0) prevFacility = currentFac;
+
+      return `
+      <tr class="${isFacStart ? 'preview-row-fac-start' : ''}">
         ${row.map((cell, idx) => {
           const val = this.escapeHtml(String(cell ?? ''));
+          if (idx === facIdx) {
+            return `<td class="preview-cell-facility">🏢 ${val}</td>`;
+          }
+          if (idx === roomIdx) {
+            return `<td class="preview-cell-room">${val}</td>`;
+          }
+          if (idx === floorIdx) {
+            return `<td style="text-align:center; color:#fbbf24; font-weight:700;">${val}</td>`;
+          }
           if (this.exportSheetMode === 'checklist_print') {
             if (idx === 0) {
               const isChk = val === '☑';
               return `<td style="text-align:center; font-size:15px; font-weight:800; color:${isChk ? '#34d399' : '#e2e8f0'};">${val}</td>`;
             }
-            if (idx === 7) return `<td style="color:#38bdf8; font-weight:700;">${val}</td>`;
-            if (idx === 8) return `<td style="text-align:center; color:#fbbf24; font-weight:700;">${val}</td>`;
-            if (idx === 9) return `<td style="color:#fb923c; font-weight:600;">${val}</td>`;
+            if (idx === 5) return `<td style="color:#38bdf8; font-weight:700;">${val}</td>`;
+            if (idx === 6) return `<td style="text-align:center; color:#fbbf24; font-weight:700; white-space:nowrap;">${val}</td>`;
+            if (idx === 7) return `<td style="color:#fb923c; font-weight:600;">${val}</td>`;
           }
-          if (idx === 6 && this.exportSheetMode === 'expanded') {
+          if (idx === 8 && this.exportSheetMode === 'expanded') {
             return `<td style="color:#38bdf8; font-weight:700;">● ${val}</td>`;
           }
-          if ((idx === 7 && this.exportSheetMode === 'expanded') || (idx === 6 && this.exportSheetMode === 'room_summary')) {
-            return `<td style="text-align:center; color:#fbbf24; font-weight:700;">${val}</td>`;
+          if ((idx === 9 && this.exportSheetMode === 'expanded') || (idx === 8 && this.exportSheetMode === 'room_summary')) {
+            return `<td style="text-align:center; color:#fbbf24; font-weight:700; white-space:nowrap;">${val}</td>`;
           }
           return `<td>${val}</td>`;
         }).join('')}
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 
   // クリップボードTSVコピー（現在選択中のまとめ方・フィルタ結果をコピー）
@@ -2950,10 +2978,52 @@ class HVACApp {
       `;
     }
 
+    // 施設ごとの統計集計マップ（連続ブロック用）
+    const facStats = new Map();
+    expRows.forEach(r => {
+      const fKey = `${r.park || ''}||${r.area || ''}||${r.facility || ''}`;
+      if (!facStats.has(fKey)) {
+        facStats.set(fKey, { count: 0, units: 0, rooms: new Set() });
+      }
+      const st = facStats.get(fKey);
+      st.count += 1;
+      st.units += (r.equipNum || 0);
+      st.rooms.add(`${r.floor || ''}||${r.room || ''}`);
+    });
+
+    let lastFacKey = null;
+    let lastRoomSig = null;
     const rowsHtml = expRows.map(r => {
       const isChecked = (checkMarkMode === 'sync') && r.completed;
+      const fKey = `${r.park || ''}||${r.area || ''}||${r.facility || ''}`;
+      const roomSig = `${fKey}||${r.floor || ''}||${r.room || ''}`;
+      const isNewFac = (fKey !== lastFacKey);
+      const isNewRoom = (roomSig !== lastRoomSig);
+      lastFacKey = fKey;
+      lastRoomSig = roomSig;
+
+      let groupHeaderHtml = '';
+      if (isNewFac) {
+        const st = facStats.get(fKey);
+        groupHeaderHtml = `
+          <tr class="a4-facility-group-row">
+            <td colspan="7">
+              <div class="a4-fac-banner">
+                <div class="a4-fac-title-wrap">
+                  <span class="a4-fac-icon">🏢</span>
+                  <span class="a4-fac-name">${this.escapeHtml(r.facility || '施設未設定')}</span>
+                  <span class="a4-fac-area-tag">[${this.escapeHtml(r.park)}] ${this.escapeHtml(r.area || '')}</span>
+                </div>
+                <span class="a4-fac-count-tag">${st.rooms.size}部屋 / ${st.count}項目 (計${st.units}台)</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
       const rowClasses = [
-        r.isRoomStart ? 'row-room-start' : '',
+        (!isNewFac && isNewRoom) ? 'row-room-start' : '',
+        (!isNewFac && !isNewRoom) ? 'row-same-room-cont' : '',
         isChecked ? 'row-done' : ''
       ].filter(Boolean).join(' ');
 
@@ -2968,19 +3038,23 @@ class HVACApp {
         }
       }
 
-      const locHtml = r.isRoomStart
-        ? `<span class="paper-loc-sub">[${this.escapeHtml(r.park)}] ${this.escapeHtml(r.area)} / ${this.escapeHtml(r.facility)}</span>
-           <span class="paper-loc-main">${r.floor ? `${this.escapeHtml(r.floor)} ` : ''}${this.escapeHtml(r.room)}</span>`
-        : `<span class="paper-loc-cont">〃（同部屋）</span>`;
+      // 階層＋部屋名をメインに主役表示（同部屋連続時は軽くラベル補足）
+      const floorBadge = r.floor ? `<span class="paper-floor-badge">${this.escapeHtml(r.floor)}</span>` : '';
+      const locHtml = isNewRoom
+        ? `<div class="paper-room-line">${floorBadge}<span class="paper-room-main">${this.escapeHtml(r.room || '-')}</span></div>`
+        : `<div class="paper-room-line is-cont">${floorBadge}<span class="paper-room-main">${this.escapeHtml(r.room || '-')}</span><span class="paper-cont-tag">(同室別機種)</span></div>`;
 
       return `
+        ${groupHeaderHtml}
         <tr class="${rowClasses}">
           <td class="col-chk"><span class="paper-checkbox ${isChecked ? 'checked' : ''}">${isChecked ? '✔' : ''}</span></td>
           <td class="col-no">${r.no}</td>
           <td class="col-loc">${locHtml}</td>
           <td class="col-eqp">
-            <span class="paper-equip-pill ${r.typeGroup}">${this.escapeHtml(r.equipType)}</span>
-            <span class="paper-equip-count">${this.escapeHtml(r.equipCount)}</span>
+            <div class="paper-equip-wrap">
+              <span class="paper-equip-pill ${r.typeGroup}">${this.escapeHtml(r.equipType)}</span>
+              <span class="paper-equip-count">${this.escapeHtml(r.equipCount)}</span>
+            </div>
           </td>
           <td class="col-req">
             <span class="paper-req-gear">${r.equipment ? this.escapeHtml(r.equipment) : '-'}</span>
@@ -3016,11 +3090,11 @@ class HVACApp {
           <tr>
             <th class="col-chk">済</th>
             <th class="col-no">No</th>
-            <th class="col-loc">場所 (施設 / 階 / 部屋)</th>
+            <th class="col-loc">階層 / 部屋名（メイン）</th>
             <th class="col-eqp">点検対象機器・台数</th>
             <th class="col-req">必要なもの / アクセス</th>
             <th class="col-nte">備考・特記事項</th>
-            <th class="col-mem">現場確認・メモ</th>
+            <th class="col-mem">確認メモ</th>
           </tr>
         </thead>
         <tbody>
