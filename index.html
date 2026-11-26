@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-6.png?v=8">
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-6.png?v=8">
   <title>TDR空調設備 現場リスト管理</title>
-  <link rel="stylesheet" href="styles.css?v=29">
+  <link rel="stylesheet" href="styles.css?v=30">
   <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -889,12 +889,12 @@
             </button>
           </div>
 
-          <!-- 外部CSVリスト一括インポート（追加登録） -->
+          <!-- 外部Excel/CSVリスト一括インポート（追加登録） -->
           <div class="backup-section mt-4" style="border-color: rgba(56, 189, 248, 0.35);">
-            <h3>📥 外部調査表(CSV) 一括追加インポート</h3>
-            <p class="text-sm text-muted">別担当者作成のCSV表（エリア・室名・仕様・台数形式）を、既存データを消さずに安全に追加登録できます。</p>
+            <h3>📥 外部調査表 (Excel / CSV) 一括追加</h3>
+            <p class="text-sm text-muted">別担当者作成のExcel(.xlsx)やCSV表（複数シート対応）を、既存データを消さずに安全に追加登録できます。</p>
             <div class="backup-btn-row mt-2">
-              <button type="button" id="open-csv-import-btn" class="btn btn-primary btn-sm" style="width:100%;">📥 外部CSVを読み込んで追加する（【Lic作成分】タグ付）</button>
+              <button type="button" id="open-csv-import-btn" class="btn btn-primary btn-sm" style="width:100%;">📥 Excel / CSVを読み込んで追加（【Lic作成分】タグ付）</button>
             </div>
           </div>
 
@@ -1099,7 +1099,7 @@
     <div id="csv-import-modal" class="modal-overlay hidden no-print">
       <div class="modal-card modal-card-multi-filter" style="max-width: 560px; max-height: 90vh;">
         <div class="modal-header">
-          <h3>📥 外部調査表(CSV) 一括追加</h3>
+          <h3>📥 外部調査表 (Excel / CSV) 一括追加</h3>
           <button type="button" id="close-csv-import-btn" class="btn-clear">✕</button>
         </div>
         <div class="modal-body" style="overflow-y: auto; flex: 1;">
@@ -1133,13 +1133,13 @@
 
           <div class="mb-2" style="display:flex; gap:8px; align-items:center;">
             <label class="btn btn-sub btn-sm" style="cursor:pointer;">
-              📂 CSVファイルを選択 (.csv)
-              <input type="file" id="csv-import-file-input" accept=".csv,.txt" class="file-hidden">
+              📂 Excel / CSVファイルを選択
+              <input type="file" id="csv-import-file-input" accept=".xlsx,.xls,.xlsm,.csv,.txt" class="file-hidden">
             </label>
-            <span class="text-xs text-muted">または下の欄に直接貼り付け</span>
+            <span class="text-xs text-muted">またはExcelから直接コピペも可</span>
           </div>
 
-          <textarea id="csv-import-textarea" class="form-input" rows="5" style="font-size:11.5px; font-family:monospace; resize:vertical;" placeholder="CSVデータをここにそのまま貼り付けて「プレビュー解析」を押してください..."></textarea>
+          <textarea id="csv-import-textarea" class="form-input" rows="5" style="font-size:11.5px; font-family:monospace; resize:vertical;" placeholder="Excelからコピーした表（タブ区切り）やCSVテキストを直接貼り付けるか、上のボタンからExcel(.xlsx)/.csvファイルを選択してください..."></textarea>
 
           <button type="button" id="csv-import-preview-btn" class="btn btn-sub btn-block mt-2">🔍 内容を解析して件数をプレビュー確認</button>
 
@@ -1164,13 +1164,13 @@
   <!-- QRコード生成ライブラリ (完全オフライン対応) -->
   <script src="qrcode.min.js"></script>
   <!-- マスターデータとアプリケーションスクリプト -->
-  <script src="master-data.js?v=29"></script>
-  <script src="app.js?v=29"></script>
+  <script src="master-data.js?v=30"></script>
+  <script src="app.js?v=30"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const reg = await navigator.serviceWorker.register('./service-worker.js?v=29', { updateViaCache: 'none' });
+          const reg = await navigator.serviceWorker.register('./service-worker.js?v=30', { updateViaCache: 'none' });
           if (reg && reg.update) reg.update();
         } catch (err) {
           console.warn('SW registration failed:', err);

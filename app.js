@@ -3235,22 +3235,48 @@ class HVACApp {
   handleCSVImportFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const fname = (file.name || '').toLowerCase();
+    const isExcel = /\.(xlsx|xls|xlsm|xlsb)$/.test(fname);
+
     const reader = new FileReader();
     reader.onload = (evt) => {
       const buf = evt.target.result;
       let text = '';
-      try {
-        // まずUTF-8 (BOM付含む) として厳格デコードを試行し、失敗したらShift-JIS (Excel日本語版標準) で読む
-        text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-      } catch (utfErr) {
-        try {
-          text = new TextDecoder('shift-jis').decode(buf);
-        } catch (sjisErr) {
-          text = new TextDecoder('utf-8').decode(buf);
+
+      if (isExcel) {
+        if (typeof XLSX === 'undefined') {
+          this.showToast('オフライン時はExcel読込ライブラリが利用できないため、CSV保存またはExcelから直接コピペしてください', true);
+          return;
         }
+        try {
+          const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+          const sheetCsvs = wb.SheetNames.map(sheetName => {
+            const ws = wb.Sheets[sheetName];
+            const csvBody = XLSX.utils.sheet_to_csv(ws, { blankrows: true });
+            // シート切り替えごとにパーサー状態を安全リセットするマーカーを先頭に挿入
+            return `,__SHEET_BREAK__,${sheetName},,,,,\n${csvBody}`;
+          });
+          text = sheetCsvs.join('\n');
+          this.showToast(`📗 Excel (${wb.SheetNames.length}シート) を読み込みました！`);
+        } catch (xlsxErr) {
+          console.error(xlsxErr);
+          this.showToast('Excelファイルの解析に失敗しました', true);
+          return;
+        }
+      } else {
+        try {
+          // まずUTF-8 (BOM付含む) として厳格デコードを試行し、失敗したらShift-JIS (Excel日本語版標準) で読む
+          text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+        } catch (utfErr) {
+          try {
+            text = new TextDecoder('shift-jis').decode(buf);
+          } catch (sjisErr) {
+            text = new TextDecoder('utf-8').decode(buf);
+          }
+        }
+        text = text.replace(/^\uFEFF/, '');
       }
-      // 先頭BOM除去
-      text = text.replace(/^\uFEFF/, '');
+
       const ta = document.getElementById('csv-import-textarea');
       if (ta) ta.value = text;
       this.previewExternalCSVImport();
@@ -3259,13 +3285,29 @@ class HVACApp {
     e.target.value = '';
   }
 
-  // RFC 4180準拠（セル内改行・ダブルクォート対応）CSVパーサー
+  // RFC 4180準拠（セル内改行・ダブルクォート・CSV/ExcelコピペTSV自動判別対応）パーサー
   parseCSVTextRows(text) {
+    const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // 区切り文字の自動判別（Excelから直接コピペされたタブ区切りか、カンマ区切りか）
+    const sample = s.slice(0, 1500);
+    let tabCount = 0;
+    let commaCount = 0;
+    let q = false;
+    for (let i = 0; i < sample.length; i++) {
+      const ch = sample[i];
+      if (ch === '"') q = !q;
+      else if (!q) {
+        if (ch === '\t') tabCount++;
+        else if (ch === ',') commaCount++;
+      }
+    }
+    const delimiter = (tabCount > 0 && tabCount >= commaCount) ? '\t' : ',';
+
     const rows = [];
     let row = [];
     let cur = '';
     let inQuotes = false;
-    const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     for (let i = 0; i < s.length; i++) {
       const ch = s[i];
@@ -3283,7 +3325,7 @@ class HVACApp {
       } else {
         if (ch === '"') {
           inQuotes = true;
-        } else if (ch === ',') {
+        } else if (ch === delimiter) {
           row.push(cur);
           cur = '';
         } else if (ch === '\n') {
@@ -3358,6 +3400,18 @@ class HVACApp {
 
       // 空行は施設テーブルを切らずにスキップ（インディ末尾などの分割対応）
       if (r.every(cell => !cell || !cell.trim())) {
+        continue;
+      }
+
+      // Excel複数シートの境界マーカー（シート切り替え時の状態リセット）
+      if (c1 === '__SHEET_BREAK__') {
+        inTable = false;
+        curEngFac = '';
+        curFacility = c2 || '';
+        curAcc1 = '';
+        curAcc2 = '';
+        curFloor = '';
+        routeStack = [];
         continue;
       }
 
