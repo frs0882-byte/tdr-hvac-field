@@ -1027,6 +1027,26 @@ class HVACApp {
     document.getElementById('export-json-btn').addEventListener('click', () => this.exportJSON());
     document.getElementById('import-json-input').addEventListener('change', (e) => this.importJSON(e));
 
+    // 外部CSVインポートモーダルイベント
+    document.getElementById('open-csv-import-btn')?.addEventListener('click', () => this.openCSVImportModal());
+    document.getElementById('close-csv-import-btn')?.addEventListener('click', () => this.closeCSVImportModal());
+    document.getElementById('cancel-csv-import-btn')?.addEventListener('click', () => this.closeCSVImportModal());
+    document.getElementById('csv-import-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'csv-import-modal') this.closeCSVImportModal();
+    });
+    document.getElementById('csv-import-file-input')?.addEventListener('change', (e) => this.handleCSVImportFile(e));
+    document.getElementById('csv-import-preview-btn')?.addEventListener('click', () => this.previewExternalCSVImport());
+    document.getElementById('csv-import-park')?.addEventListener('change', () => {
+      if (document.getElementById('csv-import-textarea')?.value.trim()) this.previewExternalCSVImport();
+    });
+    document.getElementById('csv-import-tag')?.addEventListener('input', () => {
+      if (document.getElementById('csv-import-textarea')?.value.trim()) this.previewExternalCSVImport();
+    });
+    document.getElementById('csv-import-skip-dup')?.addEventListener('change', () => {
+      if (document.getElementById('csv-import-textarea')?.value.trim()) this.previewExternalCSVImport();
+    });
+    document.getElementById('csv-import-exec-btn')?.addEventListener('click', () => this.executeExternalCSVImport());
+
     // A4縦 作業チェック表 印刷プレビューモーダル操作
     document.getElementById('close-print-modal-btn')?.addEventListener('click', () => this.closeChecklistPrintPreview());
     document.getElementById('cancel-print-modal-btn')?.addEventListener('click', () => this.closeChecklistPrintPreview());
@@ -1863,8 +1883,12 @@ class HVACApp {
         }
 
         if (filterEquip) {
-          const combined = `${r.equipment || ''} ${r.access || ''}`;
-          if (!combined.includes(filterEquip)) return false;
+          if (filterEquip === '__SELF_ONLY__') {
+            if ((r.notes || '').includes('【Lic作成分】')) return false;
+          } else {
+            const combined = `${r.equipment || ''} ${r.access || ''} ${r.notes || ''}`;
+            if (!combined.includes(filterEquip)) return false;
+          }
         }
 
         if (filterPhoto) {
@@ -3189,6 +3213,471 @@ class HVACApp {
     e.target.value = '';
   }
 
+  // ================= 外部調査表(CSV) 一括変換インポートロジック =================
+  openCSVImportModal() {
+    const modal = document.getElementById('csv-import-modal');
+    if (!modal) return;
+    this.pendingCSVImportRecords = [];
+    const box = document.getElementById('csv-import-preview-box');
+    if (box) box.classList.add('hidden');
+    const execBtn = document.getElementById('csv-import-exec-btn');
+    if (execBtn) {
+      execBtn.disabled = true;
+      execBtn.textContent = '✅ 解析を実行してから追加登録できます';
+    }
+    modal.classList.remove('hidden');
+  }
+
+  closeCSVImportModal() {
+    document.getElementById('csv-import-modal')?.classList.add('hidden');
+  }
+
+  handleCSVImportFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const buf = evt.target.result;
+      let text = '';
+      try {
+        // まずUTF-8 (BOM付含む) として厳格デコードを試行し、失敗したらShift-JIS (Excel日本語版標準) で読む
+        text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+      } catch (utfErr) {
+        try {
+          text = new TextDecoder('shift-jis').decode(buf);
+        } catch (sjisErr) {
+          text = new TextDecoder('utf-8').decode(buf);
+        }
+      }
+      // 先頭BOM除去
+      text = text.replace(/^\uFEFF/, '');
+      const ta = document.getElementById('csv-import-textarea');
+      if (ta) ta.value = text;
+      this.previewExternalCSVImport();
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }
+
+  // RFC 4180準拠（セル内改行・ダブルクォート対応）CSVパーサー
+  parseCSVTextRows(text) {
+    const rows = [];
+    let row = [];
+    let cur = '';
+    let inQuotes = false;
+    const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (s[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          cur += ch;
+        }
+      } else {
+        if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === ',') {
+          row.push(cur);
+          cur = '';
+        } else if (ch === '\n') {
+          row.push(cur);
+          rows.push(row);
+          row = [];
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+    }
+    if (cur.length > 0 || row.length > 0) {
+      row.push(cur);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  detectParkFromArea(areaName) {
+    const a = String(areaName || '');
+    const tdsAreas = [
+      'メディテレーニアン', 'アメリカン', 'ポートディスカバリー', 'ロストリバー',
+      'アラビアン', 'マーメイド', 'ミステリアス', 'ファンタジースプリングス'
+    ];
+    if (tdsAreas.some(k => a.includes(k))) return 'TDS';
+    const tdlAreas = [
+      'ワールドバザール', 'アドベンチャー', 'ウエスタン', 'クリッター',
+      'ファンタジーランド', 'トゥーンタウン', 'トゥモロー'
+    ];
+    if (tdlAreas.some(k => a.includes(k))) return 'TDL';
+    if (a.includes('ホテル') || a.includes('ミラコスタ') || a.includes('アンバサダー')) return 'HOTEL';
+    return 'TDS';
+  }
+
+  // 外部調査表(CSV)をアプリ標準レコードへ変換
+  parseExternalScheduleCSV(csvText, options = {}) {
+    const rows = this.parseCSVTextRows(csvText);
+    const parkOpt = options.park || 'AUTO';
+    const tag = (options.tag !== undefined ? options.tag : '【Lic作成分】').trim();
+    const skipDup = options.skipDup !== false;
+
+    // 既存データの重複チェック用セット
+    const existingKeys = new Set(
+      (this.records || []).map(r =>
+        this.normalizeSearchText(`${r.facility || ''}||${r.floor || ''}||${r.room || ''}`)
+      )
+    );
+
+    const parsedRecords = [];
+    let skippedDupCount = 0;
+
+    let curArea = '';
+    let curEngFac = '';
+    let curFacility = '';
+    let inTable = false;
+
+    let curAcc1 = '';
+    let curAcc2 = '';
+    let curFloor = '';
+    let routeStack = []; // [{ depth, label }]
+
+    const nowBase = Date.now();
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const r = rows[idx];
+      const c0 = (r[0] || '').trim();
+      const c1 = (r[1] || '').trim();
+      const c2 = (r[2] || '').trim();
+      const c3Raw = r[3] || '';
+      const c3 = c3Raw.trim();
+
+      // 空行は施設テーブルを切らずにスキップ（インディ末尾などの分割対応）
+      if (r.every(cell => !cell || !cell.trim())) {
+        continue;
+      }
+
+      // 1. エリア行
+      if (c1 === 'エリア') {
+        curArea = c2;
+        curEngFac = '';
+        curFacility = '';
+        inTable = false;
+        curAcc1 = '';
+        curAcc2 = '';
+        curFloor = '';
+        routeStack = [];
+        continue;
+      }
+
+      // 2. 英語建物名行
+      if (c1 === '名称（建物名）' || c1 === '名称(建物名)') {
+        curEngFac = c2;
+        continue;
+      }
+
+      // 3. テーブルヘッダー行
+      if (c0 === 'アクセス' && c3 === '室名') {
+        inTable = true;
+        curAcc1 = '';
+        curAcc2 = '';
+        curFloor = '';
+        routeStack = [];
+        continue;
+      }
+
+      // 4. 日本語施設名行（テーブル開始前）
+      if (!inTable) {
+        if (c2) {
+          curFacility = c2.replace(/\u3000+/g, ' ').trim();
+        }
+        continue;
+      }
+
+      // === テーブル内の実データ行 ===
+      if (c0) {
+        if (c0 !== curAcc1) {
+          curAcc1 = c0;
+          if (!c1) curAcc2 = '';
+        }
+      }
+      if (c1) {
+        curAcc2 = c1;
+      }
+      if (c2) {
+        curFloor = c2;
+      }
+
+      // 室名インデント階層解析
+      const firstLine = c3Raw.split(/\r?\n/)[0] || '';
+      let leadingSp = 0;
+      for (const ch of firstLine) {
+        if (ch === ' ' || ch === '\u3000' || ch === '\t') leadingSp++;
+        else break;
+      }
+      const trimmedFirst = firstLine.trim();
+      const hasArrow = trimmedFirst.startsWith('→');
+      const depth = hasArrow ? (1 + leadingSp) : (leadingSp > 0 ? 1 + leadingSp : 0);
+
+      // 表示用の綺麗な部屋名（全行を結合し先頭矢印や余分空白を除去）
+      const cleanRoomLines = c3Raw.split(/\r?\n/)
+        .map(line => line.trim().replace(/^→\s*/, '').trim())
+        .filter(Boolean);
+      const cleanRoomName = cleanRoomLines.join(' ').replace(/\s+/g, ' ').trim();
+
+      const rawSpec = (r[4] || '').trim();
+      const rawCount = (r[5] || '').trim();
+      const rawClean = (r[6] || '').trim();
+      const rawNote = (r[7] || '').trim();
+
+      // 親スタック整理: 自分以上の深さをpop
+      while (routeStack.length > 0 && routeStack[routeStack.length - 1].depth >= depth) {
+        routeStack.pop();
+      }
+
+      const parentPaths = routeStack.map(p => p.label);
+
+      // 仕様も台数も備考も空の中継行 → 親経路ノードとしてスタックへ登録しスキップ
+      const hasUnitInfo = Boolean(rawSpec || rawCount);
+      if (!hasUnitInfo) {
+        if (cleanRoomName && !cleanRoomName.includes('階段で上へ') && !cleanRoomName.includes('室内階段へ')) {
+          routeStack.push({ depth, label: cleanRoomName });
+        }
+        continue;
+      }
+
+      // 自分も子を持つ可能性があるので親スタックに積む（もし次がもっと深いインデントなら親になる）
+      if (cleanRoomName) {
+        routeStack.push({ depth, label: cleanRoomName });
+      }
+
+      // 仕様・台数の解析（ユーザー確定仕様）
+      const specLines = rawSpec.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const countLines = rawCount.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+      const pacSubtypes = { cassette: 0, floor: 0, ceiling: 0, wall: 0, duct: 0, other: 0, unknown: 0 };
+      let hexCount = 0;
+      let fcuCount = 0;
+      const specNoteExtras = [];
+
+      specLines.forEach((sp, si) => {
+        const cntRaw = countLines[si] !== undefined ? countLines[si] : (countLines[0] || '0');
+        const num = parseInt(cntRaw, 10) || 0;
+
+        if (sp.includes('なし')) {
+          specNoteExtras.push('仕様・台数なし');
+        } else if (sp.includes('全熱')) {
+          hexCount += num;
+        } else if (sp.includes('ﾌｧﾝｺｲﾙ') || sp.includes('ファンコイル')) {
+          fcuCount += num;
+        } else if (sp.includes('壁掛')) {
+          pacSubtypes.wall += num;
+        } else if (sp.includes('外床置')) {
+          pacSubtypes.floor += num;
+          specNoteExtras.push('外床置き');
+        } else if (sp.includes('床置')) {
+          pacSubtypes.floor += num;
+        } else if (sp.includes('隠蔽') || sp.includes('天中')) {
+          pacSubtypes.duct += num;
+        } else if (sp.includes('天井')) {
+          pacSubtypes.unknown += num;
+          specNoteExtras.push('元仕様:天井');
+        } else if (sp.includes('空調')) {
+          pacSubtypes.unknown += num;
+          specNoteExtras.push('元仕様:空調');
+        } else if (num > 0) {
+          pacSubtypes.unknown += num;
+          specNoteExtras.push(`元仕様:${sp}`);
+        }
+      });
+
+      const pacCount = pacSubtypes.cassette + pacSubtypes.floor + pacSubtypes.ceiling +
+                       pacSubtypes.wall + pacSubtypes.duct + pacSubtypes.other + pacSubtypes.unknown;
+      const totalUnits = pacCount + hexCount + fcuCount;
+
+      // 必要なもの（脚立など）と備考の振り分け
+      const gearList = [];
+      const extraCleanNote = [rawClean, rawNote].filter(Boolean).map(t => t.replace(/\r?\n/g, ' '));
+      const combinedNoteText = extraCleanNote.join(' / ');
+
+      const ladderMatch = combinedNoteText.match(/([46789]尺(?:脚立|必須)?)/g);
+      if (ladderMatch) {
+        ladderMatch.forEach(m => {
+          const cleanM = m.replace(/必須$/, '脚立');
+          if (!gearList.includes(cleanM)) gearList.push(cleanM);
+        });
+      }
+
+      // 備考構築（先頭に【Lic作成分】識別タグ）
+      const noteParts = [];
+      if (tag) noteParts.push(tag);
+      if (specNoteExtras.length > 0) noteParts.push(`(${Array.from(new Set(specNoteExtras)).join(', ')})`);
+      if (combinedNoteText) noteParts.push(combinedNoteText);
+      const finalNotes = noteParts.join(' ');
+
+      // アクセス方法構築
+      const accessParts = [curAcc1, curAcc2].filter(Boolean);
+      if (parentPaths.length > 0) {
+        accessParts.push(`経由: ${parentPaths.join(' ＞ ')}`);
+      }
+      const finalAccess = accessParts.join(' / ');
+
+      const finalFacility = curFacility || curEngFac || '(施設未設定)';
+      const finalPark = parkOpt === 'AUTO' ? this.detectParkFromArea(curArea) : parkOpt;
+      const finalRoom = cleanRoomName || '(部屋名未設定)';
+
+      // 重複チェック
+      const dupKey = this.normalizeSearchText(`${finalFacility}||${curFloor}||${finalRoom}`);
+      if (skipDup && existingKeys.has(dupKey)) {
+        skippedDupCount++;
+        continue;
+      }
+      existingKeys.add(dupKey);
+
+      const summaryParts = [];
+      if (pacSubtypes.wall > 0) summaryParts.push(`PAC壁掛:${pacSubtypes.wall}`);
+      if (pacSubtypes.floor > 0) summaryParts.push(`PAC床置:${pacSubtypes.floor}`);
+      if (pacSubtypes.duct > 0) summaryParts.push(`PACダクト:${pacSubtypes.duct}`);
+      if (pacSubtypes.unknown > 0) summaryParts.push(`PAC確認中:${pacSubtypes.unknown}`);
+      if (hexCount > 0) summaryParts.push(`全熱:${hexCount}`);
+      if (fcuCount > 0) summaryParts.push(`FCU:${fcuCount}`);
+
+      const recTime = new Date(nowBase + parsedRecords.length * 1000).toISOString();
+
+      parsedRecords.push({
+        id: `lic_${nowBase}_${parsedRecords.length + 1}`,
+        resort: 'TDR',
+        park: finalPark,
+        area: curArea,
+        facility: finalFacility,
+        floor: curFloor,
+        room: finalRoom,
+        fullPath: `[${finalPark}] ${curArea} / ${finalFacility} / ${curFloor || '-'} / ${finalRoom}`,
+        pacCount,
+        pacSubtypes,
+        hexCount,
+        fcuCount,
+        totalUnits,
+        otherEquipment: '',
+        equipSummary: summaryParts.join(' / ') || 'メモ確認用',
+        equipment: gearList.join(' '),
+        access: finalAccess,
+        filterSpec: '',
+        machineNo: '',
+        notes: finalNotes,
+        photos: { entrance: [], room: [], equipment: [] },
+        completed: false,
+        completedEquip: {},
+        completedAt: null,
+        createdAt: recTime,
+        updatedAt: recTime
+      });
+    }
+
+    return { records: parsedRecords, skippedDupCount };
+  }
+
+  previewExternalCSVImport() {
+    const csvText = document.getElementById('csv-import-textarea')?.value || '';
+    const box = document.getElementById('csv-import-preview-box');
+    const execBtn = document.getElementById('csv-import-exec-btn');
+    if (!box || !execBtn) return;
+
+    if (!csvText.trim()) {
+      this.showToast('CSVデータを貼り付けるか、ファイルを選択してください', true);
+      return;
+    }
+
+    const parkOpt = document.getElementById('csv-import-park')?.value || 'AUTO';
+    const tagVal = document.getElementById('csv-import-tag')?.value ?? '【Lic作成分】';
+    const skipDup = document.getElementById('csv-import-skip-dup')?.checked ?? true;
+
+    const result = this.parseExternalScheduleCSV(csvText, { park: parkOpt, tag: tagVal, skipDup });
+    this.pendingCSVImportRecords = result.records;
+
+    const recs = result.records;
+    const facCounts = new Map();
+    let totalUnits = 0, wall = 0, floor = 0, duct = 0, unk = 0, hex = 0, fcu = 0;
+
+    recs.forEach(r => {
+      facCounts.set(r.facility, (facCounts.get(r.facility) || 0) + 1);
+      totalUnits += r.totalUnits;
+      wall += r.pacSubtypes.wall;
+      floor += r.pacSubtypes.floor;
+      duct += r.pacSubtypes.duct;
+      unk += r.pacSubtypes.unknown;
+      hex += r.hexCount;
+      fcu += r.fcuCount;
+    });
+
+    const facListHtml = Array.from(facCounts.entries())
+      .map(([fn, c]) => `<div style="font-size:11.5px; color:#cbd5e1;">・${this.escapeHtml(fn)} <strong>(${c}室)</strong></div>`)
+      .join('');
+
+    const sampleHtml = recs.slice(0, 3).map(r => `
+      <div style="font-size:11px; padding:4px 6px; margin-top:4px; background:rgba(30,41,59,0.8); border-radius:4px; border-left:3px solid #10b981;">
+        <strong>${this.escapeHtml(r.facility)} / ${this.escapeHtml(r.floor)} ${this.escapeHtml(r.room)}</strong><br>
+        <span style="color:#38bdf8;">${this.escapeHtml(r.equipSummary)}</span>
+        ${r.access ? `<br><span style="color:#94a3b8;">🚪 ${this.escapeHtml(r.access)}</span>` : ''}
+        ${r.notes ? `<br><span style="color:#fbbf24;">📝 ${this.escapeHtml(r.notes)}</span>` : ''}
+      </div>
+    `).join('');
+
+    box.innerHTML = `
+      <div style="font-size:13px; font-weight:700; color:#38bdf8; margin-bottom:6px;">
+        📊 解析結果: ${facCounts.size}施設 / ${recs.length}部屋 (計 ${totalUnits}台)
+      </div>
+      ${result.skippedDupCount > 0 ? `<div style="font-size:11px; color:#fbbf24; margin-bottom:6px;">※ 既存データと重複するため ${result.skippedDupCount} 件を自動スキップしました</div>` : ''}
+      <div style="font-size:11px; color:#e2e8f0; margin-bottom:6px;">
+        内訳: PAC確認中(天井・空調)=${unk}台 / 隠蔽ダクト(天中・隠蔽)=${duct}台 / 壁掛=${wall}台 / 床置=${floor}台 / 全熱=${hex}台 / FCU=${fcu}台
+      </div>
+      <div style="max-height:110px; overflow-y:auto; margin-bottom:8px; padding:4px; background:rgba(0,0,0,0.2); border-radius:4px;">
+        ${facListHtml || '<span class="text-xs text-muted">追加対象のデータが見つかりませんでした</span>'}
+      </div>
+      ${sampleHtml ? `<div style="font-size:11px; color:#94a3b8; font-weight:700;">変換サンプル（先頭3件）:</div>${sampleHtml}` : ''}
+    `;
+    box.classList.remove('hidden');
+
+    if (recs.length > 0) {
+      execBtn.disabled = false;
+      execBtn.textContent = `✅ 既存(${this.records.length}件)を残して ${recs.length}件を追加登録する`;
+    } else {
+      execBtn.disabled = true;
+      execBtn.textContent = '追加できるデータがありません';
+    }
+  }
+
+  async executeExternalCSVImport() {
+    const recs = this.pendingCSVImportRecords || [];
+    if (recs.length === 0) {
+      this.showToast('追加するデータがありません', true);
+      return;
+    }
+
+    if (!confirm(`既存の ${this.records.length} 件はそのまま保持し、新たに ${recs.length} 件をリストへ追加登録しますか？`)) {
+      return;
+    }
+
+    try {
+      for (const item of recs) {
+        await this.saveRecord(item);
+      }
+      await this.loadRecords();
+      this.updateParkAreas();
+      this.renderChecklistView();
+      this.renderSpreadsheetPreview();
+      this.closeCSVImportModal();
+      this.showToast(`🎉 新たに ${recs.length} 件を追加登録しました！（合計 ${this.records.length} 件）`);
+    } catch (err) {
+      console.error(err);
+      this.showToast('一括追加の保存中にエラーが発生しました', true);
+    }
+  }
+
   // ================= 8.5. 作業チェックリスト (Checklist) ロジック =================
   // レコードに存在する機器種別の一覧を取得
   getRecordEquipList(r) {
@@ -3348,7 +3837,8 @@ class HVACApp {
         if (arr.length === 0) {
           labelEl.textContent = `${c.icon} ${c.def}`;
         } else if (arr.length === 1) {
-          const disp = c.key === 'unitType' ? this.getUnitTypeLabel(arr[0]) : arr[0];
+          let disp = c.key === 'unitType' ? this.getUnitTypeLabel(arr[0]) : arr[0];
+          if (disp === '__SELF_ONLY__') disp = '直接作成のみ';
           labelEl.textContent = `${c.icon} ${disp}`;
         } else {
           labelEl.textContent = `${c.icon} ${c.labelName}: ${arr.length}件選択`;
@@ -3362,7 +3852,8 @@ class HVACApp {
     const allChips = [];
     configs.forEach(c => {
       (mf[c.key] || []).forEach(val => {
-        const disp = c.key === 'unitType' ? this.getUnitTypeLabel(val) : val;
+        let disp = c.key === 'unitType' ? this.getUnitTypeLabel(val) : val;
+        if (disp === '__SELF_ONLY__') disp = '直接作成のみ';
         allChips.push(`
           <button type="button" class="active-filter-chip" title="タップで解除" onclick="app.removeCheckMultiFilterChip('${c.key}', '${this.escapeHtml(val).replace(/'/g, "\\'")}')">
             <span>${c.icon} ${this.escapeHtml(disp)}</span>
@@ -3513,13 +4004,27 @@ class HVACApp {
     }
 
     if (key === 'equipment') {
-      const presets = ['9尺', '8尺', '7尺', '6尺', '4尺', 'フィルター', 'バックステージ', 'オンステージ'];
-      return presets.map(kw => ({
-        value: kw,
-        label: kw === '9尺' || kw === '8尺' || kw === '7尺' || kw === '6尺' || kw === '4尺' ? `${kw}脚立` : kw,
-        sub: '部分一致キーワード',
-        count: recs.filter(r => `${r.equipment || ''} ${r.access || ''}`.includes(kw)).length
-      }));
+      const presets = ['9尺', '8尺', '7尺', '6尺', '4尺', 'フィルター', 'バックステージ', 'オンステージ', '【Lic作成分】', '__SELF_ONLY__'];
+      return presets.map(kw => {
+        let label = kw;
+        let sub = '部分一致キーワード';
+        let count = 0;
+        if (kw === '9尺' || kw === '8尺' || kw === '7尺' || kw === '6尺' || kw === '4尺') {
+          label = `${kw}脚立`;
+          count = recs.filter(r => `${r.equipment || ''} ${r.access || ''} ${r.notes || ''}`.includes(kw)).length;
+        } else if (kw === '__SELF_ONLY__') {
+          label = '📱 直接作成データのみ (Lic除外)';
+          sub = '作成元フィルタ';
+          count = recs.filter(r => !(r.notes || '').includes('【Lic作成分】')).length;
+        } else if (kw === '【Lic作成分】') {
+          label = '🏷️ 【Lic作成分】のみ';
+          sub = '外部CSV取込データ';
+          count = recs.filter(r => (r.notes || '').includes('【Lic作成分】')).length;
+        } else {
+          count = recs.filter(r => `${r.equipment || ''} ${r.access || ''} ${r.notes || ''}`.includes(kw)).length;
+        }
+        return { value: kw, label, sub, count };
+      });
     }
 
     return items;
@@ -3631,10 +4136,14 @@ class HVACApp {
         if (statusFilter === 'completed' && !isDone) return false;
       }
 
-      // 機材・脚立・アクセス（複数選択OR）
+      // 機材・脚立・アクセス・作成元タグ（複数選択OR）
       if (mf.equipment.length > 0) {
-        const combined = `${r.equipment || ''} ${r.access || ''}`;
-        if (!mf.equipment.some(kw => combined.includes(kw))) return false;
+        const combined = `${r.equipment || ''} ${r.access || ''} ${r.notes || ''}`;
+        const matched = mf.equipment.some(kw => {
+          if (kw === '__SELF_ONLY__') return !(r.notes || '').includes('【Lic作成分】');
+          return combined.includes(kw);
+        });
+        if (!matched) return false;
       }
 
       // 高度なあいまい・部分一致検索 (ひらがな/カタカナ相互一致、全半角正規化、複数ワードAND一致対応)
@@ -4198,16 +4707,22 @@ class HVACApp {
       .trim();
   }
 
-  // あいまい・部分一致検索判定（スペース区切りでの複数キーワードAND検索、記号・スペース有無の揺れ吸収に対応）
+  // あいまい・部分一致検索判定（スペース区切りでの複数キーワードAND検索、「-キーワード」で除外検索対応）
   matchesSearchQuery(targetString, searchInput) {
     if (!searchInput) return true;
     const normTarget = this.normalizeSearchText(targetString);
     const compactTarget = normTarget.replace(/\s+/g, '');
-    const keywords = this.normalizeSearchText(searchInput).split(/\s+/).filter(Boolean);
-    if (keywords.length === 0) return true;
-    return keywords.every(kw => {
+    const rawTokens = String(searchInput).trim().split(/[\s　]+/).filter(Boolean);
+    if (rawTokens.length === 0) return true;
+
+    return rawTokens.every(tok => {
+      const isExclude = tok.startsWith('-') && tok.length > 1;
+      const cleanTok = isExclude ? tok.slice(1) : tok;
+      const kw = this.normalizeSearchText(cleanTok);
+      if (!kw) return true;
       const compactKw = kw.replace(/\s+/g, '');
-      return normTarget.includes(kw) || (compactKw && compactTarget.includes(compactKw));
+      const hit = normTarget.includes(kw) || (compactKw && compactTarget.includes(compactKw));
+      return isExclude ? !hit : hit;
     });
   }
 

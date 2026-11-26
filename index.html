@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-6.png?v=8">
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-6.png?v=8">
   <title>TDR空調設備 現場リスト管理</title>
-  <link rel="stylesheet" href="styles.css?v=28">
+  <link rel="stylesheet" href="styles.css?v=29">
   <!-- SheetJS (Excel出力用 CDN & フォールバック) -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
@@ -601,6 +601,8 @@
               <option value="フィルター">フィルター</option>
               <option value="バックステージ">バックステージ</option>
               <option value="オンステージ">オンステージ</option>
+              <option value="【Lic作成分】">🏷️ 【Lic作成分】のみ</option>
+              <option value="__SELF_ONLY__">📱 直接作成データのみ (Lic除外)</option>
             </select>
             <select id="filter-photo-select" class="form-select select-sm">
               <option value="">📷 写真: すべて</option>
@@ -887,8 +889,17 @@
             </button>
           </div>
 
+          <!-- 外部CSVリスト一括インポート（追加登録） -->
+          <div class="backup-section mt-4" style="border-color: rgba(56, 189, 248, 0.35);">
+            <h3>📥 外部調査表(CSV) 一括追加インポート</h3>
+            <p class="text-sm text-muted">別担当者作成のCSV表（エリア・室名・仕様・台数形式）を、既存データを消さずに安全に追加登録できます。</p>
+            <div class="backup-btn-row mt-2">
+              <button type="button" id="open-csv-import-btn" class="btn btn-primary btn-sm" style="width:100%;">📥 外部CSVを読み込んで追加する（【Lic作成分】タグ付）</button>
+            </div>
+          </div>
+
           <!-- バックアップと復元 -->
-          <div class="backup-section mt-4">
+          <div class="backup-section mt-3">
             <h3>💾 データの完全バックアップ & 復元</h3>
             <p class="text-sm text-muted">スマホの写真データを含めて丸ごと保存・別端末へ引き継げます。</p>
             <div class="backup-btn-row mt-2">
@@ -1084,6 +1095,65 @@
       </div>
     </div>
 
+    <!-- 外部CSV一括追加インポートモーダル -->
+    <div id="csv-import-modal" class="modal-overlay hidden no-print">
+      <div class="modal-card modal-card-multi-filter" style="max-width: 560px; max-height: 90vh;">
+        <div class="modal-header">
+          <h3>📥 外部調査表(CSV) 一括追加</h3>
+          <button type="button" id="close-csv-import-btn" class="btn-clear">✕</button>
+        </div>
+        <div class="modal-body" style="overflow-y: auto; flex: 1;">
+          <p class="text-xs text-muted mb-2">
+            ※ <strong>既存の登録データは一切消えず、新しく追加</strong>されます。「天井→PAC確認中 / 天中・隠蔽→ダクト / 空調→確認中 / なし→メモ確認用」で自動分類します。
+          </p>
+
+          <div class="filter-grid mb-2">
+            <div>
+              <label class="form-label" style="font-size:11px;">対象パーク (自動判定可):</label>
+              <select id="csv-import-park" class="form-select select-sm">
+                <option value="AUTO">🪄 エリア名から自動判定</option>
+                <option value="TDS">TDS (東京ディズニーシー)</option>
+                <option value="TDL">TDL (東京ディズニーランド)</option>
+                <option value="HOTEL">ディズニーホテル</option>
+                <option value="OTHER">その他</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px;">識別用タグ (特記事項の先頭):</label>
+              <input type="text" id="csv-import-tag" class="form-input" style="padding:6px 10px; font-size:13px;" value="【Lic作成分】" placeholder="例: 【Lic作成分】">
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="checkbox-label" style="font-size:12px;">
+              <input type="checkbox" id="csv-import-skip-dup" checked>
+              <span>同じ「施設・階層・部屋名」が既存にある場合は重複スキップする</span>
+            </label>
+          </div>
+
+          <div class="mb-2" style="display:flex; gap:8px; align-items:center;">
+            <label class="btn btn-sub btn-sm" style="cursor:pointer;">
+              📂 CSVファイルを選択 (.csv)
+              <input type="file" id="csv-import-file-input" accept=".csv,.txt" class="file-hidden">
+            </label>
+            <span class="text-xs text-muted">または下の欄に直接貼り付け</span>
+          </div>
+
+          <textarea id="csv-import-textarea" class="form-input" rows="5" style="font-size:11.5px; font-family:monospace; resize:vertical;" placeholder="CSVデータをここにそのまま貼り付けて「プレビュー解析」を押してください..."></textarea>
+
+          <button type="button" id="csv-import-preview-btn" class="btn btn-sub btn-block mt-2">🔍 内容を解析して件数をプレビュー確認</button>
+
+          <div id="csv-import-preview-box" class="hidden mt-3" style="background:rgba(15,23,42,0.75); border:1px solid #38bdf8; border-radius:8px; padding:10px;">
+            <!-- JSで解析サマリーを描画 -->
+          </div>
+        </div>
+        <div class="modal-footer multi-filter-footer">
+          <button type="button" id="csv-import-exec-btn" class="btn btn-primary btn-block" disabled>✅ 解析を実行してから追加登録できます</button>
+          <button type="button" id="cancel-csv-import-btn" class="btn btn-sub btn-block mt-2">閉じる</button>
+        </div>
+      </div>
+    </div>
+
     <!-- トースト通知 -->
     <div id="toast" class="toast hidden"></div>
   </div>
@@ -1094,13 +1164,13 @@
   <!-- QRコード生成ライブラリ (完全オフライン対応) -->
   <script src="qrcode.min.js"></script>
   <!-- マスターデータとアプリケーションスクリプト -->
-  <script src="master-data.js?v=28"></script>
-  <script src="app.js?v=28"></script>
+  <script src="master-data.js?v=29"></script>
+  <script src="app.js?v=29"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const reg = await navigator.serviceWorker.register('./service-worker.js?v=28', { updateViaCache: 'none' });
+          const reg = await navigator.serviceWorker.register('./service-worker.js?v=29', { updateViaCache: 'none' });
           if (reg && reg.update) reg.update();
         } catch (err) {
           console.warn('SW registration failed:', err);
